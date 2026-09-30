@@ -14,6 +14,7 @@ describe('docStore 撤销与保存重开', () => {
     const target = before.segments[1];
     const oldUnit = store.createUnit(target.id)!;
     store.setTranslation(oldUnit, 'We released a new version today.');
+    store.confirmReview(oldUnit);
 
     store.splitSegment(target.id, ['我们今天', '发布了新版本。']);
     const afterSplit = useDocStore.getState().doc;
@@ -63,5 +64,27 @@ describe('docStore 撤销与保存重开', () => {
     expect(unitIdsForSegment(restored, ids[0])).toEqual([u1]);
     expect(unitIdsForSegment(restored, ids[1])).toEqual([u2]);
     expect(restored.units.every((u) => u.status === 'translated' || u.status === 'untranslated')).toBe(true);
+  });
+
+  it('A 版未确认、B 版确认后撤销回 A 版，不会把 B 版确认误恢复为有效', () => {
+    const store = useDocStore.getState();
+    const target = store.doc.segments[1].id;
+    const unit = store.createUnit(target)!;
+    store.setTranslation(unit, 'We allow it.');
+    // 有意不确认 A 版：A 版译文从未被采用。
+
+    store.editSegment(target, '我们今天禁止发布新版本。');
+    expect(useDocStore.getState().doc.units.find((u) => u.id === unit)!.status).toBe('review');
+    store.setTranslation(unit, 'We prohibit it.');
+    store.confirmReview(unit);
+    expect(useDocStore.getState().doc.units.find((u) => u.id === unit)!.status).toBe('translated');
+
+    store.undo(); // 撤销确认（B 版）
+    store.undo(); // 撤销译文修改（B 版）
+    store.undo(); // 撤销原文编辑，回到 A 版
+    const restored = useDocStore.getState().doc;
+    expect(restored.segments.find((s) => s.id === target)?.text).toBe(SAMPLE_DOC.segments[1].text);
+    // A 版从未确认，不能因历史里存在 B 版确认而显示为已采用。
+    expect(restored.units.find((u) => u.id === unit)!.status).not.toBe('translated');
   });
 });

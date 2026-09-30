@@ -8,6 +8,7 @@ import {
   splitSegment,
   unlinkSegmentUnit,
   updateTranslation,
+  confirmUnit,
   setTranslationStatus,
   unitIdsForSegment,
 } from './docOps';
@@ -26,7 +27,7 @@ function buildScenarioDoc(): DocState {
   const translate = (index: number, text: string) => {
     const segmentId = doc.segments[index].id;
     const result = createUnitForSegment(doc, segmentId);
-    doc = updateTranslation(result.state, result.unitId, text);
+    doc = confirmUnit(updateTranslation(result.state, result.unitId, text), result.unitId);
   };
   translate(0, 'Product Update Announcement');
   translate(1, 'We released a new version today.');
@@ -112,7 +113,7 @@ describe('段落身份与译文对应', () => {
 
     doc = unlinkSegmentUnit(doc, partA.id, oldUnitId);
     const created = createUnitForSegment(doc, partA.id);
-    doc = updateTranslation(created.state, created.unitId, 'The new version improves');
+    doc = confirmUnit(updateTranslation(created.state, created.unitId, 'The new version improves'), created.unitId);
     expect(unitIdsForSegment(doc, partA.id)).toEqual([created.unitId]);
     expect(unitIdsForSegment(doc, partB.id)).toEqual([oldUnitId]);
     expect(checkIntegrity(doc).ok).toBe(true);

@@ -8,6 +8,7 @@ import {
   unlinkSegmentUnit,
   unitIdsForSegment,
   updateTranslation,
+  confirmUnit,
 } from './docOps';
 import { DocState } from './model';
 import { checkIntegrity } from './integrity';
@@ -30,7 +31,7 @@ function buildScenarioDoc(): DocState {
   ];
   translations.forEach((text, index) => {
     const result = createUnitForSegment(doc, doc.segments[index].id);
-    doc = updateTranslation(result.state, result.unitId, text);
+    doc = confirmUnit(updateTranslation(result.state, result.unitId, text), result.unitId);
   });
   return doc;
 }
@@ -69,7 +70,9 @@ describe('连续拆合、移位、保存重开与导出', () => {
     const bilingual = exportBilingual(reopened);
     expect(bilingual).toContain('产品更新公告');
     expect(bilingual.match(/我们今天发布了新版本。/g)).toHaveLength(2);
-    expect(bilingual).toContain('译文待核对');
+    expect(bilingual).toContain('待处理内容');
+    expect(bilingual).toContain('待核对');
+    expect(payload.summary.pendingCount).toBeGreaterThan(0);
   });
 
   it('孤儿译文导出时单列，不写入正文', () => {

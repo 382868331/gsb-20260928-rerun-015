@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Segment } from '../core/model';
+import { Segment, LANGUAGES, languageLabel } from '../core/model';
 import { useDocStore } from '../store/docStore';
 import { unitIdsForSegment } from '../core/docOps';
 
@@ -20,8 +20,9 @@ interface SegmentRowProps {
   onClosePicker: () => void;
   onLinkUnit: (unitId: string) => void;
   onUnlink: (unitId: string) => void;
-  onCreateUnit: () => void;
+  onCreateUnit: (lang: string) => void;
   onConfirmReview: (unitId: string) => void;
+  onDecideReview: (unitId: string, decision: 'retranslate' | 'defer') => void;
 }
 
 export function SegmentRow(props: SegmentRowProps) {
@@ -30,6 +31,7 @@ export function SegmentRow(props: SegmentRowProps) {
   const setTranslation = useDocStore((s) => s.setTranslation);
   const [draft, setDraft] = useState(segment.text);
   const [splitDraft, setSplitDraft] = useState('');
+  const [newLang, setNewLang] = useState(LANGUAGES[0].code);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -126,8 +128,17 @@ export function SegmentRow(props: SegmentRowProps) {
           <div key={unit.id} className={`unit-card ${unit.status}`}>
             <div className="unit-meta">
               <code>{unit.id.slice(0, 10)}</code>
+              <span className="lang-tag">{languageLabel(unit.lang)}（{unit.lang}）</span>
               <span className={`badge ${unit.status}`}>
-                {unit.status === 'translated' ? '已译' : unit.status === 'review' ? '待核对' : '未译'}
+                {unit.status === 'translated'
+                  ? '已确认'
+                  : unit.status === 'review'
+                    ? '待核对'
+                    : unit.status === 'retranslate'
+                      ? '需重译'
+                      : unit.status === 'deferred'
+                        ? '暂缓'
+                        : '未译'}
               </span>
               {unit.reason && <span className="reason">{unit.reason}</span>}
               <button type="button" className="link-btn" onClick={() => props.onUnlink(unit.id)}>
@@ -135,8 +146,18 @@ export function SegmentRow(props: SegmentRowProps) {
               </button>
               {unit.status === 'review' && (
                 <button type="button" className="link-btn" onClick={() => props.onConfirmReview(unit.id)}>
-                  核对无误
+                  确认采用
                 </button>
+              )}
+              {(unit.status === 'review' || unit.status === 'retranslate' || unit.status === 'deferred') && (
+                <>
+                  <button type="button" className="link-btn" onClick={() => props.onDecideReview(unit.id, 'retranslate')}>
+                    重译
+                  </button>
+                  <button type="button" className="link-btn" onClick={() => props.onDecideReview(unit.id, 'defer')}>
+                    暂缓
+                  </button>
+                </>
               )}
             </div>
             <textarea
@@ -150,8 +171,19 @@ export function SegmentRow(props: SegmentRowProps) {
           </div>
         ))}
         <div className="unit-actions">
-          <button type="button" onClick={props.onCreateUnit}>
-            新建译文
+          <select
+            aria-label="新译文语言"
+            value={newLang}
+            onChange={(event) => setNewLang(event.target.value)}
+          >
+            {LANGUAGES.map((language) => (
+              <option key={language.code} value={language.code}>
+                {language.label}
+              </option>
+            ))}
+          </select>
+          <button type="button" onClick={() => props.onCreateUnit(newLang)}>
+            新建该语言译文
           </button>
           <button type="button" onClick={() => (props.linkPickerOpen ? props.onClosePicker() : props.onPickLink())}>
             {props.linkPickerOpen ? '取消关联选择' : '关联已有译文'}

@@ -4,6 +4,7 @@ import { segmentIdsForUnit, unitIdsForSegment } from '../core/docOps';
 import { checkIntegrity } from '../core/integrity';
 import { exportBilingual, exportJSON } from '../core/exportDoc';
 import { SegmentRow } from './SegmentRow';
+import { ReviewWorkspace } from './ReviewWorkspace';
 
 function download(filename: string, content: string): void {
   const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
@@ -25,6 +26,9 @@ export function App() {
   const report = useMemo(() => checkIntegrity(doc), [doc]);
   const linkedUnitIds = useMemo(() => new Set(doc.links.map((l) => l.unitId)), [doc]);
   const orphanUnits = doc.units.filter((u) => !linkedUnitIds.has(u.id));
+  const pendingCount = doc.units.filter((u) =>
+    ['review', 'retranslate', 'deferred'].includes(u.status),
+  ).length;
 
   const toggleSelect = (id: string) => {
     setSelected((prev) => {
@@ -76,8 +80,7 @@ export function App() {
 
       <div className="statusline">
         <span>
-          段落 {report.segmentCount} · 译文单元 {report.unitCount} · 待核对{' '}
-          {report.reviewUnitIds.length}
+          段落 {report.segmentCount} · 译文单元 {report.unitCount} · 待处理 {pendingCount}
         </span>
         <span className={report.ok ? 'ok' : 'bad'}>
           {report.ok ? '一致性正常（无丢段/无悬空关联）' : '存在一致性问题'}
@@ -98,9 +101,11 @@ export function App() {
         </span>
       </div>
 
+      <ReviewWorkspace />
+
       <main className="layout">
         <section className="column source-column" aria-label="源文段落">
-          <h2>源文（身份固定，移动不改身份）</h2>
+          <h2>源文（身份固定，移动不改身份；任意内容改动都会使旧译文待核对）</h2>
           {doc.segments.map((segment, index) => (
             <SegmentRow
               key={segment.id}
@@ -120,14 +125,15 @@ export function App() {
               }}
               onPickLink={() => setLinkPicker(segment.id)}
               onUnlink={(unitId) => store.unlink(segment.id, unitId)}
-              onCreateUnit={() => store.createUnit(segment.id)}
+              onCreateUnit={(lang) => store.createUnit(segment.id, lang)}
               linkPickerOpen={linkPicker === segment.id}
               onClosePicker={() => setLinkPicker(null)}
               onLinkUnit={(unitId) => {
                 store.link(segment.id, unitId);
                 setLinkPicker(null);
               }}
-              onConfirmReview={(unitId) => store.setStatus(unitId, 'translated')}
+              onConfirmReview={(unitId) => store.confirmReview(unitId)}
+              onDecideReview={(unitId, decision) => store.decideReview(unitId, decision)}
             />
           ))}
         </section>
@@ -139,11 +145,20 @@ export function App() {
           {doc.units.map((unit) => {
             const segmentCount = segmentIdsForUnit(doc, unit.id).length;
             return (
-              <div key={unit.id} className={`unit-card orphan ${unit.status}`}>
+                <div key={unit.id} className={`unit-card orphan ${unit.status}`}>
                 <div className="unit-meta">
                   <code>{unit.id.slice(0, 10)}</code>
+                  <span className="lang-tag">{unit.lang}</span>
                   <span className={`badge ${unit.status}`}>
-                    {unit.status === 'translated' ? '已译' : unit.status === 'review' ? '待核对' : '未译'}
+                    {unit.status === 'translated'
+                      ? '已确认'
+                      : unit.status === 'review'
+                        ? '待核对'
+                        : unit.status === 'retranslate'
+                          ? '需重译'
+                          : unit.status === 'deferred'
+                            ? '暂缓'
+                            : '未译'}
                   </span>
                   <span className="hint">关联 {segmentCount} 段</span>
                 </div>

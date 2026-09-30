@@ -11,6 +11,10 @@ import {
   unlinkSegmentUnit,
   updateTranslation,
   setTranslationStatus,
+  confirmUnit,
+  decideReview,
+  reconcileConfirmedUnits,
+  ReviewDecision,
 } from '../core/docOps';
 
 const STORAGE_KEY = 'mlcp.doc.v1';
@@ -55,9 +59,11 @@ interface DocStore {
   mergeSegments: (ids: string[]) => void;
   link: (segmentId: string, unitId: string) => void;
   unlink: (segmentId: string, unitId: string) => void;
-  createUnit: (segmentId: string) => string | null;
+  createUnit: (segmentId: string, lang?: string) => string | null;
   setTranslation: (unitId: string, text: string) => void;
   setStatus: (unitId: string, status: TranslationStatus) => void;
+  confirmReview: (unitId: string) => void;
+  decideReview: (unitId: string, decision: ReviewDecision) => void;
   setTitle: (title: string) => void;
 }
 
@@ -81,8 +87,11 @@ export const useDocStore = create<DocStore>((set, get) => ({
     const { past, doc, future } = get();
     if (past.length === 0) return;
     const previous = past[past.length - 1];
+    // 撤销原文改动恢复到历史快照；历史确认来源仍在，
+    // 但若历史确认对应的是另一版原文，不会被误恢复为有效（reconcile 兜底）。
+    const restored = reconcileConfirmedUnits(deepClone(previous));
     set({
-      doc: deepClone(previous),
+      doc: restored,
       past: past.slice(0, -1),
       future: [deepClone(doc), ...future].slice(0, HISTORY_LIMIT),
       dirty: true,
@@ -94,7 +103,7 @@ export const useDocStore = create<DocStore>((set, get) => ({
     if (future.length === 0) return;
     const [next, ...rest] = future;
     set({
-      doc: deepClone(next),
+      doc: reconcileConfirmedUnits(deepClone(next)),
       past: [...past, deepClone(doc)].slice(-HISTORY_LIMIT),
       future: rest,
       dirty: true,
@@ -151,11 +160,11 @@ export const useDocStore = create<DocStore>((set, get) => ({
       };
     }),
 
-  createUnit: (segmentId) => {
+  createUnit: (segmentId, lang) => {
     let unitId: string | null = null;
     set((s) => {
       const snapshot = deepClone(s.doc);
-      const result = createUnitForSegment(s.doc, segmentId);
+      const result = createUnitForSegment(s.doc, segmentId, lang);
       unitId = result.unitId;
       return {
         doc: result.state,
@@ -178,6 +187,22 @@ export const useDocStore = create<DocStore>((set, get) => ({
   setStatus: (unitId, status) =>
     set((s) => ({
       doc: setTranslationStatus(s.doc, unitId, status),
+      past: [...s.past, deepClone(s.doc)].slice(-HISTORY_LIMIT),
+      future: [],
+      dirty: true,
+    })),
+
+  confirmReview: (unitId) =>
+    set((s) => ({
+      doc: confirmUnit(s.doc, unitId),
+      past: [...s.past, deepClone(s.doc)].slice(-HISTORY_LIMIT),
+      future: [],
+      dirty: true,
+    })),
+
+  decideReview: (unitId, decision) =>
+    set((s) => ({
+      doc: decideReview(s.doc, unitId, decision),
       past: [...s.past, deepClone(s.doc)].slice(-HISTORY_LIMIT),
       future: [],
       dirty: true,
