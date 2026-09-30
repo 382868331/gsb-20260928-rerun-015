@@ -32,8 +32,3 @@ export function similarity(a: string, b: string): number {
   if (total <= 0) return 0;
   return (2 * overlap) / total;
 }
-
-export function isSubstantiveRewrite(before: string, after: string, threshold: number): boolean {
-  if (normalizeText(before) === normalizeText(after)) return false;
-  return similarity(before, after) < threshold;
-}

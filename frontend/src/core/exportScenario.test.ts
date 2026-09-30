@@ -60,7 +60,7 @@ describe('连续拆合、移位、保存重开与导出', () => {
     expect(payload.segments).toHaveLength(before.segments.length);
     expect(payload.segments.map((s) => s.source).filter((t) => t === '我们今天发布了新版本。')).toHaveLength(2);
     const repeated = payload.segments.filter((s) => s.source === '我们今天发布了新版本。');
-    const texts = repeated.map((s) => s.translations[0]?.text);
+    const texts = repeated.map((s) => s.confirmedTranslations[0]?.text);
     expect(texts[0]).not.toBe(texts[1]);
     expect(texts).toContain('We released a new version today.');
     expect(texts).toContain('Different translation for the repeated line.');
@@ -80,7 +80,8 @@ describe('连续拆合、移位、保存重开与导出', () => {
 
     const payload = buildExport(doc);
     expect(payload.orphanUnits.map((u) => u.unitId)).toContain(unitId);
-    expect(payload.segments.find((s) => s.segmentId === segmentId)!.translations).toHaveLength(0);
+    expect(payload.segments.find((s) => s.segmentId === segmentId)!.confirmedTranslations).toHaveLength(0);
+    expect(payload.segments.find((s) => s.segmentId === segmentId)!.missingTranslation).toBe(true);
     expect(exportBilingual(doc)).toContain('未关联译文');
     expect(checkIntegrity(doc).ok).toBe(true);
   });

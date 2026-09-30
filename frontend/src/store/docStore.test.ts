@@ -43,10 +43,12 @@ describe('docStore 撤销与保存重开', () => {
     expect(raw).toBeTruthy();
     const reopened = JSON.parse(raw!);
     expect(reopened.segments[2].id).toBe(SAMPLE_DOC.segments[0].id);
-    expect(reopened.links).toContainEqual({
-      segmentId: SAMPLE_DOC.segments[0].id,
-      unitId: unit,
-    });
+    expect(
+      reopened.links.find(
+        (l: { segmentId: string; unitId: string }) =>
+          l.segmentId === SAMPLE_DOC.segments[0].id && l.unitId === unit,
+      ),
+    ).toBeTruthy();
   });
 
   it('合并撤销同样恢复原文与关联', () => {

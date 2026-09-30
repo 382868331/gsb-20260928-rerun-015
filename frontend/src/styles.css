@@ -164,3 +164,51 @@ button.primary { background: #2856d6; color: #fff; border-color: #2856d6; }
 @media (max-width: 900px) {
   .layout { grid-template-columns: 1fr; }
 }
+
+.review-workspace {
+  margin: 16px;
+  border-top: 2px solid #d7dae0;
+  padding-top: 12px;
+}
+.review-entry {
+  border: 1px solid #e0b080;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 10px 0;
+  background: #fffdf8;
+}
+.review-source {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.source-before {
+  background: #f2f3f5;
+  text-decoration: line-through;
+  color: #6b7280;
+  padding: 6px 8px;
+  border-radius: 6px;
+  margin: 4px 0 0;
+}
+.source-after {
+  background: #eef6ff;
+  padding: 6px 8px;
+  border-radius: 6px;
+  margin: 4px 0 0;
+}
+.review-actions-row {
+  display: flex;
+  justify-content: flex-end;
+  margin: 8px 0;
+}
+.review-unit {
+  border-top: 1px dashed #d7dae0;
+  padding: 8px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.review-unit-actions {
+  display: flex;
+  gap: 8px;
+}

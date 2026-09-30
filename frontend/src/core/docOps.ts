@@ -1,6 +1,7 @@
 import { DocState, OpMeta, Segment, SegmentKind, TranslationStatus } from './model';
 import { nextId } from './identity';
 import { normalizeText } from './similarity';
+import { sourceFingerprint } from './reviewWorkspace';
 
 function clone(state: DocState): DocState {
   return {
@@ -53,7 +54,16 @@ export function editSegment(
     for (const unit of next.units) {
       if (affected.has(unit.id) && unit.status !== 'untranslated') {
         unit.status = 'review';
-        unit.reason = '源文已实质改写，请核对译文';
+        unit.reason = '原文内容已变更，请核对译文';
+      }
+    }
+    for (const link of next.links) {
+      if (link.segmentId === segmentId && affected.has(link.unitId)) {
+        link.sourceBefore = oldText;
+        if (link.confirmedSource !== undefined) {
+          link.priorConfirmedSource = link.confirmedSource;
+        }
+        link.confirmedSource = undefined;
       }
     }
   }
@@ -80,6 +90,28 @@ function markUnitsReview(next: DocState, unitIds: Set<string>, reason: string): 
     if (unitIds.has(unit.id) && unit.status !== 'untranslated') {
       unit.status = 'review';
       unit.reason = reason;
+    }
+  }
+}
+
+/** 拆合产生新段落：继承旧关联，但旧确认指纹降格为“确认沿革”，需重新核对。 */
+function inheritLinks(
+  next: DocState,
+  newSegmentIds: string[],
+  inheritedUnitIds: string[],
+  sourceBefore: string,
+): void {
+  for (const segmentId of newSegmentIds) {
+    for (const unitId of inheritedUnitIds) {
+      const prior = next.links.find(
+        (l) => l.segmentId === segmentId && l.unitId === unitId,
+      );
+      next.links.push({
+        segmentId,
+        unitId,
+        sourceBefore,
+        priorConfirmedSource: prior?.confirmedSource ?? prior?.priorConfirmedSource,
+      });
     }
   }
 }
@@ -111,11 +143,12 @@ export function splitSegment(
 
   next.segments.splice(index, 1, ...newSegments);
   next.links = next.links.filter((l) => l.segmentId !== segmentId);
-  for (const seg of newSegments) {
-    for (const unitId of inheritedUnits) {
-      next.links.push({ segmentId: seg.id, unitId });
-    }
-  }
+  inheritLinks(
+    next,
+    newSegments.map((s) => s.id),
+    inheritedUnits,
+    original.text,
+  );
   markUnitsReview(next, new Set(inheritedUnits), '段落已拆分，请核对并重新指定译文对应');
 
   return {
@@ -160,9 +193,17 @@ export function mergeSegments(
   next.segments.splice(first, 0, merged);
 
   const removed = new Set(segmentIds);
+  const inheritedLinks = next.links.filter((l) => removed.has(l.segmentId));
   next.links = next.links.filter((l) => !removed.has(l.segmentId));
+  const sourceBefore = mergedSegments.map((s) => s.text).join(separator);
   for (const unitId of inheritedUnits) {
-    next.links.push({ segmentId: merged.id, unitId });
+    const oldLink = inheritedLinks.find((l) => l.unitId === unitId);
+    next.links.push({
+      segmentId: merged.id,
+      unitId,
+      sourceBefore,
+      priorConfirmedSource: oldLink?.confirmedSource ?? oldLink?.priorConfirmedSource,
+    });
   }
   markUnitsReview(next, inheritedUnits, '段落已合并，请核对译文对应');
 
@@ -186,7 +227,15 @@ export function linkSegmentUnit(
   const exists = next.links.some(
     (l) => l.segmentId === segmentId && l.unitId === unitId,
   );
-  if (!exists) next.links.push({ segmentId, unitId });
+  if (!exists) {
+    next.links.push({ segmentId, unitId });
+    const unit = next.units.find((u) => u.id === unitId);
+    const segment = next.segments.find((s) => s.id === segmentId);
+    if (unit && segment && unit.text.trim().length > 0) {
+      unit.status = 'review';
+      unit.reason = '译文新挂到该段，需按当前原文确认';
+    }
+  }
   return next;
 }
 
@@ -222,6 +271,14 @@ export function updateTranslation(state: DocState, unitId: string, text: string)
   unit.text = text;
   if (text.trim().length > 0 && unit.status === 'untranslated') {
     unit.status = 'translated';
+    for (const segmentId of segmentIdsForUnit(next, unitId)) {
+      const segment = next.segments.find((s) => s.id === segmentId);
+      const link = next.links.find((l) => l.segmentId === segmentId && l.unitId === unitId);
+      if (segment && link && link.confirmedSource === undefined) {
+        link.confirmedSource = sourceFingerprint(segment.text);
+        link.sourceBefore = undefined;
+      }
+    }
   }
   if (text.trim().length === 0) {
     unit.status = 'untranslated';
@@ -239,7 +296,17 @@ export function setTranslationStatus(
   const unit = next.units.find((u) => u.id === unitId);
   if (unit) {
     unit.status = status;
-    if (status === 'translated') unit.reason = undefined;
+    if (status === 'translated') {
+      unit.reason = undefined;
+      for (const segmentId of segmentIdsForUnit(next, unitId)) {
+        const segment = next.segments.find((s) => s.id === segmentId);
+        const link = next.links.find((l) => l.segmentId === segmentId && l.unitId === unitId);
+        if (segment && link) {
+          link.confirmedSource = sourceFingerprint(segment.text);
+          link.sourceBefore = undefined;
+        }
+      }
+    }
   }
   return next;
 }

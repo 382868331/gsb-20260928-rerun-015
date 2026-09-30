@@ -4,6 +4,7 @@ import { segmentIdsForUnit, unitIdsForSegment } from '../core/docOps';
 import { checkIntegrity } from '../core/integrity';
 import { exportBilingual, exportJSON } from '../core/exportDoc';
 import { SegmentRow } from './SegmentRow';
+import { ReviewWorkspace } from './ReviewWorkspace';
 
 function download(filename: string, content: string): void {
   const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
@@ -77,7 +78,7 @@ export function App() {
       <div className="statusline">
         <span>
           段落 {report.segmentCount} · 译文单元 {report.unitCount} · 待核对{' '}
-          {report.reviewUnitIds.length}
+          {report.reviewUnitIds.length} · 未确认段 {report.unconfirmedSegmentIds.length}
         </span>
         <span className={report.ok ? 'ok' : 'bad'}>
           {report.ok ? '一致性正常（无丢段/无悬空关联）' : '存在一致性问题'}
@@ -169,6 +170,8 @@ export function App() {
           )}
         </section>
       </main>
+
+      <ReviewWorkspace />
     </div>
   );
 }

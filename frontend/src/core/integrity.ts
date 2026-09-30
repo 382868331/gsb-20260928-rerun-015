@@ -1,4 +1,5 @@
 import { DocState } from './model';
+import { isLinkConfirmed } from './reviewWorkspace';
 
 export interface IntegrityReport {
   segmentCount: number;
@@ -14,6 +15,8 @@ export interface IntegrityReport {
   orphanUnitIds: string[];
   /** 处于待核对状态的译文单元。 */
   reviewUnitIds: string[];
+  /** 关联译文尚未按当前原文确认的段落。 */
+  unconfirmedSegmentIds: string[];
   ok: boolean;
 }
 
@@ -35,6 +38,9 @@ export function checkIntegrity(state: DocState): IntegrityReport {
   ).length;
   const linkedSegments = new Set(state.links.map((l) => l.segmentId));
   const linkedUnits = new Set(state.links.map((l) => l.unitId));
+  const confirmedSegments = new Set(
+    state.links.filter((l) => isLinkConfirmed(state, l)).map((l) => l.segmentId),
+  );
   return {
     segmentCount: state.segments.length,
     unitCount: state.units.length,
@@ -44,6 +50,9 @@ export function checkIntegrity(state: DocState): IntegrityReport {
     unlinkedSegmentIds: state.segments.filter((s) => !linkedSegments.has(s.id)).map((s) => s.id),
     orphanUnitIds: state.units.filter((u) => !linkedUnits.has(u.id)).map((u) => u.id),
     reviewUnitIds: state.units.filter((u) => u.status === 'review').map((u) => u.id),
+    unconfirmedSegmentIds: state.segments
+      .filter((s) => linkedSegments.has(s.id) && !confirmedSegments.has(s.id))
+      .map((s) => s.id),
     get ok() {
       return (
         this.danglingLinks === 0 &&

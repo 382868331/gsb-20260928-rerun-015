@@ -12,6 +12,12 @@ import {
   updateTranslation,
   setTranslationStatus,
 } from '../core/docOps';
+import {
+  confirmAllForSegment,
+  confirmLink,
+  deferReview,
+  requestRetranslation,
+} from '../core/reviewWorkspace';
 
 const STORAGE_KEY = 'mlcp.doc.v1';
 const HISTORY_LIMIT = 100;
@@ -58,6 +64,10 @@ interface DocStore {
   createUnit: (segmentId: string) => string | null;
   setTranslation: (unitId: string, text: string) => void;
   setStatus: (unitId: string, status: TranslationStatus) => void;
+  confirmTranslation: (segmentId: string, unitId: string) => void;
+  confirmSegment: (segmentId: string) => void;
+  retranslate: (segmentId: string, unitId: string) => void;
+  defer: (segmentId: string, unitId: string) => void;
   setTitle: (title: string) => void;
 }
 
@@ -178,6 +188,38 @@ export const useDocStore = create<DocStore>((set, get) => ({
   setStatus: (unitId, status) =>
     set((s) => ({
       doc: setTranslationStatus(s.doc, unitId, status),
+      past: [...s.past, deepClone(s.doc)].slice(-HISTORY_LIMIT),
+      future: [],
+      dirty: true,
+    })),
+
+  confirmTranslation: (segmentId, unitId) =>
+    set((s) => ({
+      doc: confirmLink(s.doc, segmentId, unitId),
+      past: [...s.past, deepClone(s.doc)].slice(-HISTORY_LIMIT),
+      future: [],
+      dirty: true,
+    })),
+
+  confirmSegment: (segmentId) =>
+    set((s) => ({
+      doc: confirmAllForSegment(s.doc, segmentId),
+      past: [...s.past, deepClone(s.doc)].slice(-HISTORY_LIMIT),
+      future: [],
+      dirty: true,
+    })),
+
+  retranslate: (segmentId, unitId) =>
+    set((s) => ({
+      doc: requestRetranslation(s.doc, segmentId, unitId),
+      past: [...s.past, deepClone(s.doc)].slice(-HISTORY_LIMIT),
+      future: [],
+      dirty: true,
+    })),
+
+  defer: (segmentId, unitId) =>
+    set((s) => ({
+      doc: deferReview(s.doc, segmentId, unitId),
       past: [...s.past, deepClone(s.doc)].slice(-HISTORY_LIMIT),
       future: [],
       dirty: true,

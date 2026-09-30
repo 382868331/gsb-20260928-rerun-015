@@ -22,6 +22,16 @@ export interface TranslationUnit {
 export interface SegmentUnitLink {
   segmentId: string;
   unitId: string;
+  /**
+   * 人工确认时所依据的源文指纹。
+   * 仅当与当前关联源文指纹一致时该链路才算已确认；
+   * 源文任意内容变化都会使其失效，撤销/重做也不会错认另一版本的确认。
+   */
+  confirmedSource?: string;
+  /** 进入核对工作区时的旧原文，供“前后对照”展示。 */
+  sourceBefore?: string;
+  /** 上一次被确认过的源文指纹（已被新版本作废），保留确认沿革。 */
+  priorConfirmedSource?: string;
 }
 
 export interface DocState {
@@ -38,6 +48,3 @@ export interface OpMeta {
   createdSegmentIds?: string[];
   createdUnitIds?: string[];
 }
-
-/** 实质改写判定阈值：相似度低于该值的编辑视为实质改写。 */
-export const REWRITE_SIMILARITY_THRESHOLD = 0.85;
