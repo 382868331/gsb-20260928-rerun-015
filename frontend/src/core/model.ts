@@ -14,8 +14,47 @@ export interface TranslationUnit {
   id: string;
   text: string;
   status: TranslationStatus;
+  /** 人工可读语言名；译文单元本身就是一种语言的译文载体。 */
+  languageLabel?: string;
   /** 最近一次导致待核对的原因，便于界面提示。 */
   reason?: string;
+}
+
+export interface TermTranslationChoice {
+  /** 该语言对应的译文单元 id。 */
+  unitId: string;
+  /** 可选：旧译法，用于逐段替换；不同语境找不到旧译法时不会强行替换。 */
+  previous?: string;
+  /** 本轮采用的新译法。 */
+  adopted: string;
+}
+
+export type TermDecisionStatus = 'active' | 'revoked';
+
+/** 某个源文术语在一轮审阅中的各语言采用译法与适用段落范围。 */
+export interface TermDecision {
+  id: string;
+  term: string;
+  revision: number;
+  scopeSegmentIds: string[];
+  translations: TermTranslationChoice[];
+  status: TermDecisionStatus;
+  createdAt: string;
+  revokedAt?: string;
+}
+
+export type TermResolutionKind = 'applied' | 'exception';
+
+/** 逐段、逐语言的术语处理决定；例外必须写明人工依据。 */
+export interface TermResolution {
+  termId: string;
+  revision: number;
+  decision: TermResolutionKind;
+  term: string;
+  adopted: string;
+  rationale?: string;
+  sourceFingerprint: string;
+  decidedAt: string;
 }
 
 /** 源文段落 <-> 译文单元 多对多关联（join 表）。 */
@@ -32,6 +71,12 @@ export interface SegmentUnitLink {
   sourceBefore?: string;
   /** 上一次被确认过的源文指纹（已被新版本作废），保留确认沿革。 */
   priorConfirmedSource?: string;
+  /** key 为 termId；只记录该链路已处理的术语版本。 */
+  termResolutions?: Record<string, TermResolution>;
+  /** key 为 termId；最终确认时所采用的术语修订版本。 */
+  confirmedTermRevisions?: Record<string, number>;
+  /** 本轮暂缓标记，不影响其它段落，也不是术语例外。 */
+  deferred?: boolean;
 }
 
 export interface DocState {
@@ -39,6 +84,7 @@ export interface DocState {
   segments: Segment[];
   units: TranslationUnit[];
   links: SegmentUnitLink[];
+  termDecisions: TermDecision[];
 }
 
 export interface OpMeta {

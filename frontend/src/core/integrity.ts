@@ -21,6 +21,7 @@ export interface IntegrityReport {
 }
 
 export function checkIntegrity(state: DocState): IntegrityReport {
+  state.termDecisions ??= [];
   const segmentIds = new Set<string>();
   const duplicateSegmentIds = new Set<string>();
   for (const s of state.segments) {

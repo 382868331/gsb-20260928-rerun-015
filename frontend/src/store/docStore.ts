@@ -11,6 +11,7 @@ import {
   unlinkSegmentUnit,
   updateTranslation,
   setTranslationStatus,
+  setUnitLanguageLabel,
 } from '../core/docOps';
 import {
   confirmAllForSegment,
@@ -18,6 +19,15 @@ import {
   deferReview,
   requestRetranslation,
 } from '../core/reviewWorkspace';
+import {
+  acknowledgeRevokedTerm,
+  applyTermDecision,
+  createTermDecision,
+  deferTermResolution,
+  keepTermException,
+  revokeTermDecision,
+  TermDecisionInput,
+} from '../core/termOps';
 
 const STORAGE_KEY = 'mlcp.doc.v1';
 const HISTORY_LIMIT = 100;
@@ -31,7 +41,9 @@ export const SAMPLE_DOC: DocState = createDocument('多语言内容制作平台�
 ]);
 
 function deepClone(state: DocState): DocState {
-  return JSON.parse(JSON.stringify(state)) as DocState;
+  const cloned = JSON.parse(JSON.stringify(state)) as DocState;
+  cloned.termDecisions ??= [];
+  return cloned;
 }
 
 function loadInitial(): DocState {
@@ -64,10 +76,17 @@ interface DocStore {
   createUnit: (segmentId: string) => string | null;
   setTranslation: (unitId: string, text: string) => void;
   setStatus: (unitId: string, status: TranslationStatus) => void;
+  setLanguageLabel: (unitId: string, label: string) => void;
   confirmTranslation: (segmentId: string, unitId: string) => void;
   confirmSegment: (segmentId: string) => void;
   retranslate: (segmentId: string, unitId: string) => void;
   defer: (segmentId: string, unitId: string) => void;
+  createTerm: (input: TermDecisionInput) => string;
+  revokeTerm: (termId: string) => void;
+  applyTerm: (segmentId: string, unitId: string, termId: string) => string;
+  keepTerm: (segmentId: string, unitId: string, termId: string, rationale: string) => void;
+  deferTerm: (segmentId: string, unitId: string, termId: string) => void;
+  acknowledgeRevokedTerm: (segmentId: string, unitId: string, termId: string) => void;
   setTitle: (title: string) => void;
 }
 
@@ -193,6 +212,14 @@ export const useDocStore = create<DocStore>((set, get) => ({
       dirty: true,
     })),
 
+  setLanguageLabel: (unitId, label) =>
+    set((s) => ({
+      doc: setUnitLanguageLabel(s.doc, unitId, label),
+      past: [...s.past, deepClone(s.doc)].slice(-HISTORY_LIMIT),
+      future: [],
+      dirty: true,
+    })),
+
   confirmTranslation: (segmentId, unitId) =>
     set((s) => ({
       doc: confirmLink(s.doc, segmentId, unitId),
@@ -217,13 +244,66 @@ export const useDocStore = create<DocStore>((set, get) => ({
       dirty: true,
     })),
 
-  defer: (segmentId, unitId) =>
+    defer: (segmentId, unitId) =>
     set((s) => ({
       doc: deferReview(s.doc, segmentId, unitId),
       past: [...s.past, deepClone(s.doc)].slice(-HISTORY_LIMIT),
       future: [],
       dirty: true,
     })),
+
+    createTerm: (input) => {
+      let termId = '';
+      set((s) => {
+        const result = createTermDecision(s.doc, input);
+        termId = result.termId;
+        if (!termId) return {};
+        return { doc: result.state, past: [...s.past, deepClone(s.doc)].slice(-HISTORY_LIMIT), future: [], dirty: true };
+      });
+      return termId;
+    },
+
+    revokeTerm: (termId) =>
+      set((s) => ({
+        doc: revokeTermDecision(s.doc, termId),
+        past: [...s.past, deepClone(s.doc)].slice(-HISTORY_LIMIT),
+        future: [],
+        dirty: true,
+      })),
+
+    applyTerm: (segmentId, unitId, termId) => {
+      let nextUnitId = unitId;
+      set((s) => {
+        const result = applyTermDecision(s.doc, segmentId, unitId, termId);
+        nextUnitId = result.unitId;
+        return { doc: result.state, past: [...s.past, deepClone(s.doc)].slice(-HISTORY_LIMIT), future: [], dirty: true };
+      });
+      return nextUnitId;
+    },
+
+    keepTerm: (segmentId, unitId, termId, rationale) =>
+      set((s) => ({
+        doc: keepTermException(s.doc, segmentId, unitId, termId, rationale),
+        past: [...s.past, deepClone(s.doc)].slice(-HISTORY_LIMIT),
+        future: [],
+        dirty: true,
+      })),
+
+    deferTerm: (segmentId, unitId, termId) =>
+      set((s) => ({
+        doc: deferTermResolution(s.doc, segmentId, unitId, termId),
+        past: [...s.past, deepClone(s.doc)].slice(-HISTORY_LIMIT),
+        future: [],
+        dirty: true,
+      })),
+
+    acknowledgeRevokedTerm: (segmentId, unitId, termId) =>
+      set((s) => ({
+        doc: acknowledgeRevokedTerm(s.doc, segmentId, unitId, termId),
+        past: [...s.past, deepClone(s.doc)].slice(-HISTORY_LIMIT),
+        future: [],
+        dirty: true,
+      })),
 
   setTitle: (title) =>
     set((s) => ({

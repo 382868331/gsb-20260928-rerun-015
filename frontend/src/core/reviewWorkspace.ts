@@ -1,20 +1,30 @@
 import { DocState, SegmentUnitLink, TranslationUnit } from './model';
 import { normalizeText } from './similarity';
 import { segmentIdsForUnit, unitIdsForSegment } from './docOps';
+import { applicableTermsForLink, ApplicableTerm } from './termOps';
 
 /** 源文指纹：任意内容变化（包括“允许”→“禁止”这类单字反义改动）都会改变。 */
 export function sourceFingerprint(text: string): string {
   return normalizeText(text);
 }
 
-/** 某条段落↔译文关联是否已针对当前源文版本人工确认。 */
-export function isLinkConfirmed(state: DocState, link: SegmentUnitLink): boolean {
+function sourceConfirmed(state: DocState, link: SegmentUnitLink): boolean {
   const segment = state.segments.find((s) => s.id === link.segmentId);
   if (!segment) return false;
   if (link.confirmedSource === sourceFingerprint(segment.text)) return true;
-  // 兼容确认追踪上线前已处于“已译”状态的译文：无指纹但未被标待核对即视为当前版本确认。
   const unit = state.units.find((u) => u.id === link.unitId);
   return link.confirmedSource === undefined && unit?.status === 'translated';
+}
+
+function unresolvedTerms(state: DocState, link: SegmentUnitLink): ApplicableTerm[] {
+  return applicableTermsForLink(state, link.segmentId, link.unitId)
+    .filter((term) => term.state === 'missing' || term.state === 'outdated' || !term.finalConfirmed);
+}
+const noApplicableTerms: ApplicableTerm[] = [];
+
+/** 某条段落↔译文关联是否已针对当前源文版本人工确认。 */
+export function isLinkConfirmed(state: DocState, link: SegmentUnitLink): boolean {
+  return sourceConfirmed(state, link) && unresolvedTerms(state, link).length === 0 && !link.deferred;
 }
 
 /** 译文是否在所有关联段落上都已确认（多对一情形下每段需分别确认）。 */
@@ -31,6 +41,9 @@ export interface ReviewUnitView {
   /** 上一版本的确认来源指纹（若有），用于展示确认沿革、防止错认版本。 */
   priorConfirmedSource?: string;
   deferred: boolean;
+  reviewCause: 'source-change' | 'term-change' | 'both' | 'unresolved';
+  termItems: ApplicableTerm[];
+  exceptionRationales: string[];
 }
 
 export interface ReviewEntry {
@@ -59,11 +72,26 @@ export function buildReviewWorkspace(state: DocState): ReviewEntry[] {
       )!;
       const confirmed = isLinkConfirmed(state, link);
       if (!confirmed) {
+        const termItems = applicableTermsForLink(state, segment.id, unitId) ?? noApplicableTerms;
+        const sourceOk = sourceConfirmed(state, link);
+        const staleTerms = termItems.filter((term) => term.state === 'missing' || term.state === 'outdated' || !term.finalConfirmed);
+        const hasTermTrigger = staleTerms.length > 0 || link.deferred;
+        const sourceChanged = Boolean(link.sourceBefore || link.confirmedSource !== undefined || link.priorConfirmedSource);
+        const reviewCause: ReviewUnitView['reviewCause'] = hasTermTrigger
+          ? (!sourceOk && sourceChanged ? 'both' : 'term-change')
+          : sourceChanged
+            ? 'source-change'
+            : 'unresolved';
         views.push({
           unit,
           confirmed,
           priorConfirmedSource: link.priorConfirmedSource,
-          deferred: unit.reason?.startsWith('已暂缓') ?? false,
+          deferred: Boolean(link.deferred),
+          reviewCause,
+          termItems,
+          exceptionRationales: Object.values(link.termResolutions ?? {})
+            .filter((resolution) => resolution.decision === 'exception' && resolution.rationale)
+            .map((resolution) => `${resolution.term}：${resolution.rationale}`),
         });
       }
     }
@@ -99,11 +127,16 @@ export function confirmLink(
   link.confirmedSource = sourceFingerprint(segment.text);
   link.priorConfirmedSource = undefined;
   link.sourceBefore = undefined;
-  const unit = next.units.find((u) => u.id === unitId);
-  if (unit && isUnitConfirmed(next, unitId)) {
-    unit.status = 'translated';
-    unit.reason = undefined;
+  link.deferred = false;
+  link.confirmedTermRevisions ??= {};
+  for (const item of applicableTermsForLink(next, segmentId, unitId)) {
+    if (item.decision.status === 'active' && item.resolution) {
+      link.confirmedTermRevisions[item.decision.id] = item.decision.revision;
+    }
   }
+  const unit = next.units.find((u) => u.id === unitId);
+  if (unit && isUnitConfirmed(next, unitId)) unit.status = 'translated';
+  if (unit && unit.status === 'translated') unit.reason = undefined;
   return next;
 }
 
@@ -129,6 +162,8 @@ export function requestRetranslation(
   const unit = next.units.find((u) => u.id === unitId);
   if (!link || !unit) return next;
   link.confirmedSource = undefined;
+  link.deferred = false;
+  link.termResolutions = undefined;
   unit.status = 'review';
   unit.reason = '原文已变更，旧译文作废，等待重译后确认';
   return next;
@@ -147,6 +182,7 @@ export function deferReview(
   const unit = next.units.find((u) => u.id === unitId);
   if (!link || !unit) return next;
   link.confirmedSource = undefined;
+  link.deferred = true;
   unit.status = 'review';
   unit.reason = '已暂缓，稍后人工核对';
   return next;

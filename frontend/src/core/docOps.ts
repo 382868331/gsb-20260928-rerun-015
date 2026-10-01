@@ -8,7 +8,18 @@ function clone(state: DocState): DocState {
     title: state.title,
     segments: state.segments.map((s) => ({ ...s })),
     units: state.units.map((u) => ({ ...u })),
-    links: state.links.map((l) => ({ ...l })),
+    links: state.links.map((l) => ({
+      ...l,
+      termResolutions: l.termResolutions
+        ? Object.fromEntries(Object.entries(l.termResolutions).map(([id, resolution]) => [id, { ...resolution }]))
+        : undefined,
+      confirmedTermRevisions: l.confirmedTermRevisions ? { ...l.confirmedTermRevisions } : undefined,
+    })),
+    termDecisions: (state.termDecisions ?? []).map((term) => ({
+      ...term,
+      scopeSegmentIds: [...term.scopeSegmentIds],
+      translations: term.translations.map((translation) => ({ ...translation })),
+    })),
   };
 }
 
@@ -30,6 +41,7 @@ export function createDocument(title: string, lines: Array<{ kind?: SegmentKind;
     })),
     units: [],
     links: [],
+    termDecisions: [],
   };
 }
 
@@ -64,6 +76,7 @@ export function editSegment(
           link.priorConfirmedSource = link.confirmedSource;
         }
         link.confirmedSource = undefined;
+        link.confirmedTermRevisions = undefined;
       }
     }
   }
@@ -308,5 +321,12 @@ export function setTranslationStatus(
       }
     }
   }
+  return next;
+}
+
+export function setUnitLanguageLabel(state: DocState, unitId: string, label: string): DocState {
+  const next = clone(state);
+  const unit = next.units.find((item) => item.id === unitId);
+  if (unit) unit.languageLabel = label.trim() || undefined;
   return next;
 }
