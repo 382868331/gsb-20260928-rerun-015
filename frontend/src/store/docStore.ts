@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { DocState, TranslationStatus } from '../core/model';
+import { DocState, LanguageCode, TermRendering, TranslationStatus } from '../core/model';
 import {
   createDocument,
   createUnitForSegment,
@@ -18,6 +18,7 @@ import {
   deferReview,
   requestRetranslation,
 } from '../core/reviewWorkspace';
+import { createTermDecision, decideTermOnLink, revokeTermDecision, reviseTermDecision } from '../core/terms';
 
 const STORAGE_KEY = 'mlcp.doc.v1';
 const HISTORY_LIMIT = 100;
@@ -37,7 +38,10 @@ function deepClone(state: DocState): DocState {
 function loadInitial(): DocState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as DocState;
+    if (raw) {
+      const parsed = JSON.parse(raw) as DocState;
+      return { ...parsed, termDecisions: parsed.termDecisions ?? [] };
+    }
   } catch {
     // 存储不可用时回退到示例稿。
   }
@@ -61,13 +65,23 @@ interface DocStore {
   mergeSegments: (ids: string[]) => void;
   link: (segmentId: string, unitId: string) => void;
   unlink: (segmentId: string, unitId: string) => void;
-  createUnit: (segmentId: string) => string | null;
+  createUnit: (segmentId: string, language?: LanguageCode) => string | null;
   setTranslation: (unitId: string, text: string) => void;
   setStatus: (unitId: string, status: TranslationStatus) => void;
   confirmTranslation: (segmentId: string, unitId: string) => void;
   confirmSegment: (segmentId: string) => void;
   retranslate: (segmentId: string, unitId: string) => void;
   defer: (segmentId: string, unitId: string) => void;
+  createTerm: (term: string, renderings: TermRendering[]) => string | null;
+  reviseTerm: (decisionId: string, renderings: TermRendering[]) => void;
+  revokeTerm: (decisionId: string) => void;
+  decideTerm: (
+    segmentId: string,
+    unitId: string,
+    decisionId: string,
+    type: 'applied' | 'kept' | 'deferred',
+    options?: { rationale?: string; revisedText?: string },
+  ) => void;
   setTitle: (title: string) => void;
 }
 
@@ -161,11 +175,11 @@ export const useDocStore = create<DocStore>((set, get) => ({
       };
     }),
 
-  createUnit: (segmentId) => {
+  createUnit: (segmentId, language = 'en') => {
     let unitId: string | null = null;
     set((s) => {
       const snapshot = deepClone(s.doc);
-      const result = createUnitForSegment(s.doc, segmentId);
+      const result = createUnitForSegment(s.doc, segmentId, language);
       unitId = result.unitId;
       return {
         doc: result.state,
@@ -220,6 +234,41 @@ export const useDocStore = create<DocStore>((set, get) => ({
   defer: (segmentId, unitId) =>
     set((s) => ({
       doc: deferReview(s.doc, segmentId, unitId),
+      past: [...s.past, deepClone(s.doc)].slice(-HISTORY_LIMIT),
+      future: [],
+      dirty: true,
+    })),
+
+  createTerm: (term, renderings) => {
+    let decisionId: string | null = null;
+    set((s) => {
+      const snapshot = deepClone(s.doc);
+      const result = createTermDecision(s.doc, { term, renderings });
+      decisionId = result.decisionId;
+      return { doc: result.state, past: [...s.past, snapshot].slice(-HISTORY_LIMIT), future: [], dirty: true };
+    });
+    return decisionId;
+  },
+
+  reviseTerm: (decisionId, renderings) =>
+    set((s) => ({
+      doc: reviseTermDecision(s.doc, decisionId, renderings),
+      past: [...s.past, deepClone(s.doc)].slice(-HISTORY_LIMIT),
+      future: [],
+      dirty: true,
+    })),
+
+  revokeTerm: (decisionId) =>
+    set((s) => ({
+      doc: revokeTermDecision(s.doc, decisionId),
+      past: [...s.past, deepClone(s.doc)].slice(-HISTORY_LIMIT),
+      future: [],
+      dirty: true,
+    })),
+
+  decideTerm: (segmentId, unitId, decisionId, type, options) =>
+    set((s) => ({
+      doc: decideTermOnLink(s.doc, segmentId, unitId, decisionId, type, options),
       past: [...s.past, deepClone(s.doc)].slice(-HISTORY_LIMIT),
       future: [],
       dirty: true,

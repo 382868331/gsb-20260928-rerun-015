@@ -1,7 +1,8 @@
-import { DocState, OpMeta, Segment, SegmentKind, TranslationStatus } from './model';
+import { DocState, LanguageCode, OpMeta, Segment, SegmentKind, TranslationStatus } from './model';
 import { nextId } from './identity';
 import { normalizeText } from './similarity';
 import { sourceFingerprint } from './reviewWorkspace';
+import { reconcileUnitStatuses, refreshLinkState } from './terms';
 
 function clone(state: DocState): DocState {
   return {
@@ -9,6 +10,7 @@ function clone(state: DocState): DocState {
     segments: state.segments.map((s) => ({ ...s })),
     units: state.units.map((u) => ({ ...u })),
     links: state.links.map((l) => ({ ...l })),
+    termDecisions: (state.termDecisions ?? []).map((d) => ({ ...d })),
   };
 }
 
@@ -30,6 +32,7 @@ export function createDocument(title: string, lines: Array<{ kind?: SegmentKind;
     })),
     units: [],
     links: [],
+    termDecisions: [],
   };
 }
 
@@ -63,9 +66,18 @@ export function editSegment(
         if (link.confirmedSource !== undefined) {
           link.priorConfirmedSource = link.confirmedSource;
         }
+        if ((link.confirmedTerms?.length ?? 0) > 0) {
+          link.priorConfirmedTerms = [
+            ...(link.priorConfirmedTerms ?? []),
+            ...(link.confirmedTerms ?? []),
+          ];
+          link.confirmedTerms = [];
+        }
         link.confirmedSource = undefined;
+        refreshLinkState(next, link, newText);
       }
     }
+    reconcileUnitStatuses(next);
   }
   return { state: next, meta: { type: 'edit' } };
 }
@@ -111,6 +123,7 @@ function inheritLinks(
         unitId,
         sourceBefore,
         priorConfirmedSource: prior?.confirmedSource ?? prior?.priorConfirmedSource,
+        priorConfirmedTerms: prior?.confirmedTerms ?? prior?.priorConfirmedTerms,
       });
     }
   }
@@ -203,6 +216,7 @@ export function mergeSegments(
       unitId,
       sourceBefore,
       priorConfirmedSource: oldLink?.confirmedSource ?? oldLink?.priorConfirmedSource,
+      priorConfirmedTerms: oldLink?.confirmedTerms ?? oldLink?.priorConfirmedTerms,
     });
   }
   markUnitsReview(next, inheritedUnits, '段落已合并，请核对译文对应');
@@ -256,10 +270,11 @@ export function unlinkSegmentUnit(
 export function createUnitForSegment(
   state: DocState,
   segmentId: string,
+  language: LanguageCode = 'en',
 ): { state: DocState; unitId: string } {
   const next = clone(state);
   const unitId = nextId('unit');
-  next.units.push({ id: unitId, text: '', status: 'untranslated' });
+  next.units.push({ id: unitId, language, text: '', status: 'untranslated' });
   next.links.push({ segmentId, unitId });
   return { state: next, unitId };
 }

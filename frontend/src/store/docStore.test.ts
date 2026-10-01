@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { SAMPLE_DOC, useDocStore } from './docStore';
 import { unitIdsForSegment } from '../core/docOps';
+import { isLinkFullyConfirmed } from '../core/terms';
 
 describe('docStore 撤销与保存重开', () => {
   beforeEach(() => {
@@ -65,5 +66,48 @@ describe('docStore 撤销与保存重开', () => {
     expect(unitIdsForSegment(restored, ids[0])).toEqual([u1]);
     expect(unitIdsForSegment(restored, ids[1])).toEqual([u2]);
     expect(restored.units.every((u) => u.status === 'translated' || u.status === 'untranslated')).toBe(true);
+  });
+
+  it('术语决定保存重开后仍在，撤销不恢复上一轮确认', () => {
+    const store = useDocStore.getState();
+    const segmentId = store.doc.segments[1].id;
+    const unitId = store.createUnit(segmentId, 'en')!;
+    store.setTranslation(unitId, 'We released a new version today.');
+    const beforeConfirmedLink = useDocStore
+      .getState()
+      .doc.links.find((l) => l.segmentId === segmentId && l.unitId === unitId)!;
+    expect(isLinkFullyConfirmed(useDocStore.getState().doc, beforeConfirmedLink)).toBe(true);
+
+    const decisionId = store.createTerm('新版本', [
+      { language: 'en', adopted: 'new release', scope: '公告语境' },
+    ])!;
+    const pendingLink = useDocStore
+      .getState()
+      .doc.links.find((l) => l.segmentId === segmentId && l.unitId === unitId)!;
+    expect(isLinkFullyConfirmed(useDocStore.getState().doc, pendingLink)).toBe(false);
+
+    store.decideTerm(segmentId, unitId, decisionId, 'applied', {
+      revisedText: 'We released a new release today.',
+    });
+    store.save();
+
+    const raw = localStorage.getItem('mlcp.doc.v1')!;
+    const reopened = JSON.parse(raw);
+    expect(reopened.termDecisions).toHaveLength(1);
+    expect(
+      reopened.links.find((l: { segmentId: string; unitId: string }) => l.segmentId === segmentId && l.unitId === unitId)
+        .confirmedTerms,
+    ).toEqual([`${decisionId}@1`]);
+
+    store.revokeTerm(decisionId);
+    const afterRevoke = useDocStore.getState().doc;
+    const revokedLink = afterRevoke.links.find((l) => l.segmentId === segmentId && l.unitId === unitId)!;
+    expect(isLinkFullyConfirmed(afterRevoke, revokedLink)).toBe(false);
+
+    store.undo();
+    const undone = useDocStore.getState().doc;
+    expect(undone.termDecisions[0].revokedAt).toBeUndefined();
+    const restoredLink = undone.links.find((l) => l.segmentId === segmentId && l.unitId === unitId)!;
+    expect(isLinkFullyConfirmed(undone, restoredLink)).toBe(true);
   });
 });

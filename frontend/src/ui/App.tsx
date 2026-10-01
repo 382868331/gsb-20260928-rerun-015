@@ -5,6 +5,7 @@ import { checkIntegrity } from '../core/integrity';
 import { exportBilingual, exportJSON } from '../core/exportDoc';
 import { SegmentRow } from './SegmentRow';
 import { ReviewWorkspace } from './ReviewWorkspace';
+import { TermPanel } from './TermPanel';
 
 function download(filename: string, content: string): void {
   const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
@@ -172,6 +173,7 @@ export function App() {
       </main>
 
       <ReviewWorkspace />
+      <TermPanel />
     </div>
   );
 }
