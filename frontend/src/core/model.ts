@@ -97,6 +97,156 @@ export interface DocState {
   termDecisions: TermDecision[];
 }
 
+// ---------------------------------------------------------------------------
+// 审阅分支与合并会话
+// ---------------------------------------------------------------------------
+
+/** 审阅来源身份：原文编辑、术语决定、局部译文可来自不同编辑者的不同审阅。 */
+export interface ReviewBranch {
+  id: string;
+  name: string;
+  author: string;
+  /** 分支所基于的明确文档版本（基线 DocState 的深拷贝）。 */
+  base: DocState;
+  /** 分支当前文档状态（深拷贝），拒绝合入时基线与主线均不受它影响。 */
+  head: DocState;
+  createdAt: string;
+}
+
+export type ChangeKind = 'source' | 'translation' | 'term';
+
+export interface ChangeEvidence {
+  /** 基线值（原文文本 / 译文文本 / 术语采用译法快照）。 */
+  base?: string;
+  /** 该审阅提出的值。 */
+  proposed: string;
+  /** 编辑者填写的依据，冲突时两边依据都必须保留可查。 */
+  rationale?: string;
+}
+
+export type ProposalResolution = 'unresolved' | 'a' | 'b' | 'manual' | 'skipped';
+
+/** 同一段落+语言上两个审阅都改了译文时的冲突处置。 */
+export interface TranslationResolution {
+  kind: 'translation';
+  segmentId: string;
+  language: LanguageCode;
+  a: ChangeEvidence;
+  b: ChangeEvidence;
+  resolution: ProposalResolution;
+  /** 人工解决时给出的译文文本。 */
+  manualText?: string;
+  /** 人工保留的例外说明（即使后续失效也保留可查）。 */
+  manualRationale?: string;
+  /** 处置时所绑定的原文指纹；原文再变则该选择失效、重新打开冲突。 */
+  resolvedSource?: string;
+  /** 处置时所绑定的术语快照集合；术语再变则该选择失效。 */
+  resolvedTerms?: string[];
+  decidedAt?: string;
+}
+
+export interface SourceResolution {
+  kind: 'source';
+  segmentId: string;
+  a: ChangeEvidence;
+  b: ChangeEvidence;
+  resolution: ProposalResolution;
+  manualText?: string;
+  manualRationale?: string;
+  /** 处置时该段所关联的术语快照；术语变化只重开术语项，不重开原文决定。 */
+  decidedAt?: string;
+}
+
+export interface TermResolution {
+  kind: 'term';
+  /** 术语决定 id（按术语一一对应，修订即新版本）。 */
+  decisionId: string;
+  term: string;
+  language: LanguageCode;
+  a: ChangeEvidence;
+  b: ChangeEvidence;
+  resolution: ProposalResolution;
+  manualText?: string;
+  manualRationale?: string;
+  /** 处置绑定的决定版本；决定再变则重新打开。 */
+  resolvedVersion?: number;
+  decidedAt?: string;
+}
+
+export type MergeResolution = SourceResolution | TranslationResolution | TermResolution;
+
+/** 单个非冲突变化项，可按语言、按段落选择性合入。 */
+export interface MergeChange {
+  kind: ChangeKind;
+  branchId: string;
+  segmentId?: string;
+  unitId?: string;
+  language?: LanguageCode;
+  decisionId?: string;
+  /** 变化前的值。 */
+  before?: string;
+  /** 审阅提出的值。 */
+  after: string;
+  rationale?: string;
+  status: 'pending' | 'accepted' | 'rejected';
+}
+
+export type MergeSessionStatus = 'open' | 'merged' | 'rejected';
+
+export interface MergeSession {
+  id: string;
+  /** 会话开始时主线的不可变快照；拒绝合入时主线回到此状态（本就未变）。 */
+  targetSnapshot: DocState;
+  branchA: ReviewBranch;
+  branchB: ReviewBranch;
+  changes: MergeChange[];
+  resolutions: MergeResolution[];
+  status: MergeSessionStatus;
+  createdAt: string;
+  mergedAt?: string;
+  rejectedAt?: string;
+}
+
+// ---------------------------------------------------------------------------
+// 冻结发布包
+// ---------------------------------------------------------------------------
+
+/** 发布包中每段译文的确定出处：对应确定的原文、术语与审阅决定。 */
+export interface ReleaseTranslation {
+  unitId: string;
+  language: LanguageCode;
+  text: string;
+  /** 所确认的原文指纹。 */
+  sourceFingerprint: string;
+  /** 所采用的术语决定快照 decisionId@version。 */
+  termSnapshots: string[];
+  /** 该译文来自哪次合并会话（如有）及其合入决定。 */
+  adoptedFrom?: { sessionId: string; branchId: string; kind: ChangeKind };
+  /** 人工保留的术语例外说明（历史可查）。 */
+  exceptionRationale?: string;
+}
+
+export interface ReleaseSegment {
+  segmentId: string;
+  kind: SegmentKind;
+  source: string;
+  translations: ReleaseTranslation[];
+  /** 逐语言是否仍待处理；待处理语言不进入 translations，不能冒充已确认。 */
+  pendingLanguages: LanguageCode[];
+}
+
+/** 冻结后不可变的发布包：快照内容不再随后续编辑改变。 */
+export interface ReleasePackage {
+  id: string;
+  title: string;
+  version: number;
+  frozenAt: string;
+  sourceDocTitle: string;
+  segments: ReleaseSegment[];
+  /** 冻结时的整篇文档快照，保证下载内容永远对应旧包。 */
+  snapshot: DocState;
+}
+
 export interface OpMeta {
   type: string;
   /** 拆分/合并等操作中受影响的新旧段落 id，便于测试与撤销核对。 */
