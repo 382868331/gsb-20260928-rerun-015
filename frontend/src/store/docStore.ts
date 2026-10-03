@@ -19,8 +19,23 @@ import {
   requestRetranslation,
 } from '../core/reviewWorkspace';
 import { createTermDecision, decideTermOnLink, revokeTermDecision, reviseTermDecision } from '../core/terms';
+import {
+  ReviewJudgment,
+  ReviewWorkspaceState,
+  canFreeze,
+  createBranch,
+  emptyReviewWorkspace,
+  freezeRelease,
+  mergeBranches,
+  recordJudgment,
+  redecideMergedItem,
+  resolveConflict,
+  setBranchStatus,
+  withdrawMergedItem,
+} from '../core/reviewBranch';
 
 const STORAGE_KEY = 'mlcp.doc.v1';
+const REVIEW_STORAGE_KEY = 'mlcp.review.v1';
 const HISTORY_LIMIT = 100;
 
 export const SAMPLE_DOC: DocState = createDocument('多语言内容制作平台示例稿', [
@@ -33,6 +48,16 @@ export const SAMPLE_DOC: DocState = createDocument('多语言内容制作平台�
 
 function deepClone(state: DocState): DocState {
   return JSON.parse(JSON.stringify(state)) as DocState;
+}
+
+function loadReviewInitial(): ReviewWorkspaceState {
+  try {
+    const raw = localStorage.getItem(REVIEW_STORAGE_KEY);
+    if (raw) return JSON.parse(raw) as ReviewWorkspaceState;
+  } catch {
+    // 存储不可用时从空工作区开始。
+  }
+  return emptyReviewWorkspace();
 }
 
 function loadInitial(): DocState {
@@ -50,6 +75,7 @@ function loadInitial(): DocState {
 
 interface DocStore {
   doc: DocState;
+  review: ReviewWorkspaceState;
   past: DocState[];
   future: DocState[];
   dirty: boolean;
@@ -83,10 +109,25 @@ interface DocStore {
     options?: { rationale?: string; revisedText?: string },
   ) => void;
   setTitle: (title: string) => void;
+  createReviewBranch: (reviewer: string) => string | null;
+  judge: (branchId: string, judgment: ReviewJudgment) => void;
+  closeBranch: (branchId: string) => void;
+  reopenBranch: (branchId: string) => void;
+  mergeReviewBranches: (branchIdA: string, branchIdB: string) => string | null;
+  resolveMergeConflict: (
+    mergedId: string,
+    segmentId: string,
+    unitId: string,
+    resolution: ReviewJudgment,
+  ) => void;
+  withdrawMerged: (mergedId: string, segmentId: string, unitId: string) => void;
+  redecideMerged: (mergedId: string, resolution: ReviewJudgment) => void;
+  freeze: (mergedId: string) => string | null;
 }
 
 export const useDocStore = create<DocStore>((set, get) => ({
   doc: typeof localStorage !== 'undefined' ? loadInitial() : deepClone(SAMPLE_DOC),
+  review: typeof localStorage !== 'undefined' ? loadReviewInitial() : emptyReviewWorkspace(),
   past: [],
   future: [],
   dirty: false,
@@ -96,9 +137,66 @@ export const useDocStore = create<DocStore>((set, get) => ({
   resetToSample: () => set({ doc: deepClone(SAMPLE_DOC), past: [], future: [], dirty: true }),
 
   save: () => {
-    const { doc } = get();
+    const { doc, review } = get();
     localStorage.setItem(STORAGE_KEY, JSON.stringify(doc));
+    localStorage.setItem(REVIEW_STORAGE_KEY, JSON.stringify(review));
     set({ dirty: false, savedAt: new Date().toLocaleTimeString() });
+  },
+
+  createReviewBranch: (reviewer) => {
+    let branchId: string | null = null;
+    set((s) => {
+      const result = createBranch(s.review, s.doc, reviewer);
+      branchId = result.branchId;
+      return { review: result.ws, dirty: true };
+    });
+    return branchId;
+  },
+
+  judge: (branchId, judgment) =>
+    set((s) => ({ review: recordJudgment(s.review, branchId, judgment), dirty: true })),
+
+  closeBranch: (branchId) =>
+    set((s) => ({ review: setBranchStatus(s.review, branchId, 'closed'), dirty: true })),
+
+  reopenBranch: (branchId) =>
+    set((s) => ({ review: setBranchStatus(s.review, branchId, 'open'), dirty: true })),
+
+  mergeReviewBranches: (branchIdA, branchIdB) => {
+    let mergedId: string | null = null;
+    set((s) => {
+      const result = mergeBranches(s.review, branchIdA, branchIdB);
+      mergedId = result.mergedId;
+      return { review: result.ws, dirty: true };
+    });
+    return mergedId;
+  },
+
+  resolveMergeConflict: (mergedId, segmentId, unitId, resolution) =>
+    set((s) => ({
+      review: resolveConflict(s.review, mergedId, segmentId, unitId, resolution),
+      dirty: true,
+    })),
+
+  withdrawMerged: (mergedId, segmentId, unitId) =>
+    set((s) => ({
+      review: withdrawMergedItem(s.review, mergedId, segmentId, unitId),
+      dirty: true,
+    })),
+
+  redecideMerged: (mergedId, resolution) =>
+    set((s) => ({ review: redecideMergedItem(s.review, mergedId, resolution), dirty: true })),
+
+  freeze: (mergedId) => {
+    let freezeId: string | null = null;
+    set((s) => {
+      const merged = s.review.mergedVersions.find((m) => m.id === mergedId);
+      if (!merged || !canFreeze(merged)) return {};
+      const result = freezeRelease(s.review, s.doc, mergedId);
+      freezeId = result.freezeId;
+      return { review: result.ws, dirty: true };
+    });
+    return freezeId;
   },
 
   undo: () => {

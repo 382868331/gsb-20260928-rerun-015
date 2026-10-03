@@ -295,3 +295,29 @@ button.primary { background: #2856d6; color: #fff; border-color: #2856d6; }
   gap: 10px;
   align-items: center;
 }
+
+.review-board { margin-top: 16px; border-top: 2px solid #444; padding-top: 12px; }
+.branch-create, .merge-controls-row { display: flex; gap: 8px; margin-bottom: 8px; }
+.branch-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.branch-card { border: 1px solid #ccc; border-radius: 6px; padding: 8px; display: flex; gap: 8px; align-items: center; }
+.branch-segment { border: 1px solid #ddd; border-radius: 6px; padding: 8px; margin: 8px 0; }
+.branch-segment-head { display: flex; gap: 8px; align-items: center; }
+.judgment-row { border-top: 1px dashed #ddd; padding: 6px 0; }
+.judgment-controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 4px; }
+.merge-item { border: 1px solid #ddd; border-radius: 6px; padding: 8px; margin: 6px 0; }
+.merge-item.conflict { border-color: #d97706; }
+.merge-item.pending { border-color: #dc2626; }
+.merge-item-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.conflict-picker { display: flex; gap: 8px; align-items: center; margin-top: 4px; flex-wrap: wrap; }
+.merge-resolution { display: flex; gap: 8px; align-items: center; margin-top: 4px; }
+.badge.rec-applies { background: #dcfce7; }
+.badge.rec-recheck { background: #fee2e2; }
+.badge.rec-new { background: #dbeafe; }
+.badge.rec-removed { background: #f3f4f6; }
+.badge.kind-common { background: #dcfce7; }
+.badge.kind-onlyA, .badge.kind-onlyB { background: #dbeafe; }
+.badge.kind-conflict { background: #fef3c7; }
+.badge.decided { background: #e0e7ff; }
+.freeze-card { border: 1px solid #ccc; border-radius: 6px; padding: 8px; margin: 6px 0; }
+.freeze-segment { border-top: 1px dashed #ddd; padding: 4px 0; }
+.freeze-decision { color: #374151; font-size: 0.9em; }
