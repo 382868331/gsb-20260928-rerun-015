@@ -17,10 +17,12 @@ import {
   freezeRelease,
   mergeBranches,
   reconcileBranch,
+  reconcileMergedItem,
   recordJudgment,
   resolveConflict,
   withdrawMergedItem,
 } from './reviewBranch';
+import { buildReviewExport } from './exportDoc';
 
 function buildDoc(): DocState {
   let doc = createDocument('发布流程样稿', [
@@ -98,7 +100,7 @@ describe('独立审阅分支 → 汇总 → 冻结 全流程', () => {
     expect(ws2.branches[1].judgments).toHaveLength(3);
 
     // 汇总
-    const merged = mergeBranches(ws2, branchA, branchB);
+    const merged = mergeBranches(ws2, doc, branchA, branchB);
     ws2 = merged.ws;
     const mv = ws2.mergedVersions.find((m) => m.id === merged.mergedId)!;
     const byKind = (kind: string) => mv.items.filter((i) => i.kind === kind);
@@ -189,7 +191,7 @@ describe('独立审阅分支 → 汇总 → 冻结 全流程', () => {
     ws = judge(ws, a.branchId, doc.segments[0].id, unitOf(doc, 0), 'accept');
     ws = judge(ws, b.branchId, doc.segments[0].id, unitOf(doc, 0), 'accept');
     ws = judge(ws, b.branchId, doc.segments[1].id, unitOf(doc, 1), 'edit', 'Improved.');
-    const merged = mergeBranches(ws, a.branchId, b.branchId);
+    const merged = mergeBranches(ws, doc, a.branchId, b.branchId);
     ws = merged.ws;
     const mv = ws.mergedVersions[0];
     expect(canFreeze(mv)).toBe(true);
@@ -205,5 +207,107 @@ describe('独立审阅分支 → 汇总 → 冻结 全流程', () => {
     expect(other.resolved).toBe(true);
     expect(ws.branches[0].judgments).toHaveLength(1);
     expect(ws.branches[1].judgments).toHaveLength(2);
+  });
+
+  it('合并条目固定创建时原文/译文/依据，主文档修订单独标注需复核', () => {
+    const doc = buildDoc();
+    let ws = emptyReviewWorkspace();
+    const a = createBranch(ws, doc, '甲');
+    ws = a.ws;
+    const b = createBranch(ws, doc, '乙');
+    ws = b.ws;
+    // 两名审阅者对标题段作出不同译文判断
+    ws = judge(ws, a.branchId, doc.segments[0].id, unitOf(doc, 0), 'edit', 'Product Update', '简洁');
+    ws = judge(ws, b.branchId, doc.segments[0].id, unitOf(doc, 0), 'edit', 'Product News', '口语化');
+    ws = judge(ws, b.branchId, doc.segments[1].id, unitOf(doc, 1), 'accept', undefined, '准确');
+    const merged = mergeBranches(ws, doc, a.branchId, b.branchId);
+    ws = merged.ws;
+    const mv = ws.mergedVersions[0];
+    const conflict = mv.items.find((i) => i.kind === 'conflict')!;
+    // 汇总采用甲的一侧
+    ws = resolveConflict(ws, mv.id, conflict.segmentId, conflict.unitId, conflict.a!);
+
+    // 主文档标题改为“修订后标题”
+    const revised = { ...editSegment(doc, doc.segments[0].id, '修订后标题').state, title: '修订后标题' };
+    const mvAfter = ws.mergedVersions[0];
+    const item = mvAfter.items.find((i) => i.segmentId === doc.segments[0].id)!;
+    // 合并条目仍展示创建时的原文与译文，决定依据不变
+    expect(item.sourceText).toBe('产品更新公告');
+    expect(item.unitText).toBe('Product Update Announcement');
+    expect(item.resolution?.revisedText).toBe('Product Update');
+    expect(item.resolution?.rationale).toBe('简洁');
+    // 当前原文变化单独标注为需复核
+    const entry = reconcileMergedItem(revised, item);
+    expect(entry.status).toBe('recheck');
+    expect(entry.currentText).toBe('修订后标题');
+    // 未改动的段落仍适用
+    const other = mvAfter.items.find((i) => i.segmentId === doc.segments[1].id)!;
+    expect(reconcileMergedItem(revised, other).status).toBe('applies');
+
+    // 保存重开后快照仍在
+    const reopened = JSON.parse(JSON.stringify(ws)) as ReviewWorkspaceState;
+    expect(reopened.mergedVersions[0].items.find((i) => i.segmentId === doc.segments[0].id)!.sourceText).toBe(
+      '产品更新公告',
+    );
+
+    // 导出后仍能区分原合并依据、当前修订
+    const payload = buildReviewExport(revised, reopened);
+    const exported = payload.mergedVersions[0].items.find((i) => i.segmentId === doc.segments[0].id)!;
+    expect(exported.sourceAtMerge).toBe('产品更新公告');
+    expect(exported.currentSource).toBe('修订后标题');
+    expect(exported.reconcileStatus).toBe('recheck');
+    expect(payload.currentTitle).toBe('修订后标题');
+  });
+
+  it('撤回一项决定只重开其同段依赖项，冻结内容保持独立', () => {
+    let doc = buildDoc();
+    // 同段第二个译文单元：依赖同一原文语境
+    const extra = createUnitForSegment(doc, doc.segments[0].id, 'en');
+    doc = updateTranslation(extra.state, extra.unitId, 'Alt title.');
+    const extraUnitId = extra.unitId;
+
+    let ws = emptyReviewWorkspace();
+    const a = createBranch(ws, doc, '甲');
+    ws = a.ws;
+    const b = createBranch(ws, doc, '乙');
+    ws = b.ws;
+    ws = judge(ws, a.branchId, doc.segments[0].id, unitOf(doc, 0), 'accept');
+    ws = judge(ws, a.branchId, doc.segments[0].id, extraUnitId, 'reject', undefined, '备用译法不用');
+    ws = judge(ws, b.branchId, doc.segments[0].id, unitOf(doc, 0), 'accept');
+    ws = judge(ws, b.branchId, doc.segments[0].id, extraUnitId, 'reject', undefined, '备用译法不用');
+    ws = judge(ws, b.branchId, doc.segments[1].id, unitOf(doc, 1), 'accept');
+    const merged = mergeBranches(ws, doc, a.branchId, b.branchId);
+    ws = merged.ws;
+    const mv = ws.mergedVersions[0];
+    expect(canFreeze(mv)).toBe(true);
+
+    // 撤回 seg0 的一个决定 → 同段依赖项一并重开，其他段不受影响
+    ws = withdrawMergedItem(ws, mv.id, doc.segments[0].id, unitOf(doc, 0));
+    const mvAfter = ws.mergedVersions[0];
+    const seg0Items = mvAfter.items.filter((i) => i.segmentId === doc.segments[0].id);
+    expect(seg0Items).toHaveLength(2);
+    expect(seg0Items.every((i) => i.pending && !i.resolved)).toBe(true);
+    const seg1 = mvAfter.items.find((i) => i.segmentId === doc.segments[1].id)!;
+    expect(seg1.resolved).toBe(true);
+    expect(seg1.pending).toBe(false);
+    expect(canFreeze(mvAfter)).toBe(false);
+
+    // 冻结后导出：冻结内容与当前修订、合并依据各自独立
+    const frozen = freezeRelease(ws, doc, mv.id);
+    expect(frozen.freezeId).toBeNull(); // 待审项阻断冻结
+    // 重新决定后冻结成功
+    let ws2 = ws;
+    for (const item of seg0Items) {
+      ws2 = resolveConflict(ws2, mv.id, item.segmentId, item.unitId, item.resolution!);
+    }
+    const done = freezeRelease(ws2, doc, mv.id, '2026-10-04T02:00:00Z');
+    expect(done.freezeId).not.toBeNull();
+    ws2 = done.ws;
+    const revised = { ...doc, title: '修订后标题' };
+    const payload = buildReviewExport(revised, ws2);
+    expect(payload.freezes).toHaveLength(1);
+    expect(payload.freezes[0].title).toBe('发布流程样稿');
+    expect(payload.currentTitle).toBe('修订后标题');
+    expect(payload.mergedVersions[0].items[0].sourceAtMerge).toBe('产品更新公告');
   });
 });

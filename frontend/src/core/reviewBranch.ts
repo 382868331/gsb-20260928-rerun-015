@@ -36,6 +36,10 @@ export interface MergeItem {
   segmentId: string;
   unitId: string;
   kind: MergeItemKind;
+  /** 合并创建时快照的原文（取自分支基线），之后主文档修订不改变它。 */
+  sourceText: string;
+  /** 合并创建时快照的译文。 */
+  unitText: string;
   a?: ReviewJudgment;
   b?: ReviewJudgment;
   /** 汇总后采用的最终判断；共同/单侧条目自动确定，冲突需人工选择。 */
@@ -149,6 +153,7 @@ function sameJudgment(a: ReviewJudgment, b: ReviewJudgment): boolean {
  */
 export function mergeBranches(
   ws: ReviewWorkspaceState,
+  doc: DocState,
   branchIdA: string,
   branchIdB: string,
   now = new Date().toISOString(),
@@ -158,6 +163,15 @@ export function mergeBranches(
   if (!a || !b || a.id === b.id) return { ws, mergedId: null };
   const items: MergeItem[] = [];
   const seen = new Set<string>();
+  const snapshotOf = (judgment: ReviewJudgment) => {
+    const sourceText =
+      a.baseline[judgment.segmentId] ??
+      b.baseline[judgment.segmentId] ??
+      doc.segments.find((s) => s.id === judgment.segmentId)?.text ??
+      '';
+    const unitText = doc.units.find((u) => u.id === judgment.unitId)?.text ?? '';
+    return { sourceText, unitText };
+  };
   const push = (judgment: ReviewJudgment, side: 'a' | 'b') => {
     const key = judgmentKey(judgment.segmentId, judgment.unitId);
     const other = (side === 'a' ? b : a).judgments.find(
@@ -165,11 +179,13 @@ export function mergeBranches(
     );
     if (seen.has(key)) return;
     seen.add(key);
+    const snapshot = snapshotOf(judgment);
     if (!other) {
       const item: MergeItem = {
         segmentId: judgment.segmentId,
         unitId: judgment.unitId,
         kind: side === 'a' ? 'onlyA' : 'onlyB',
+        ...snapshot,
         resolution: clone(judgment),
         resolved: true,
         pending: false,
@@ -183,6 +199,7 @@ export function mergeBranches(
         segmentId: judgment.segmentId,
         unitId: judgment.unitId,
         kind: 'common',
+        ...snapshot,
         a: clone(judgment),
         b: clone(other),
         resolution: clone(judgment),
@@ -194,6 +211,7 @@ export function mergeBranches(
         segmentId: judgment.segmentId,
         unitId: judgment.unitId,
         kind: 'conflict',
+        ...snapshot,
         a: clone(side === 'a' ? judgment : other),
         b: clone(side === 'a' ? other : judgment),
         resolved: false,
@@ -247,6 +265,10 @@ export function withdrawMergedItem(
   const next = clone(ws);
   const merged = next.mergedVersions.find((m) => m.id === mergedId);
   if (!merged) return next;
+  const target = merged.items.find(
+    (i) => i.segmentId === segmentId && i.unitId === unitId,
+  );
+  if (!target) return next;
   for (const item of merged.items) {
     if (item.segmentId === segmentId) {
       item.pending = true;
@@ -254,6 +276,36 @@ export function withdrawMergedItem(
     }
   }
   return next;
+}
+
+/**
+ * 合并条目与当前原文的逐段核对：按段落 id（而非位置）比较
+ * 合并创建时的快照与当前原文；拆分/合并后原段 id 消失视为 removed。
+ */
+export function reconcileMergedItem(doc: DocState, item: MergeItem): ReconcileEntry {
+  const current = doc.segments.find((s) => s.id === item.segmentId);
+  if (!current) {
+    return { segmentId: item.segmentId, status: 'removed', baselineText: item.sourceText };
+  }
+  if (current.text === item.sourceText) {
+    return {
+      segmentId: item.segmentId,
+      status: 'applies',
+      baselineText: item.sourceText,
+      currentText: current.text,
+    };
+  }
+  return {
+    segmentId: item.segmentId,
+    status: 'recheck',
+    baselineText: item.sourceText,
+    currentText: current.text,
+  };
+}
+
+/** 整个合并版本的核对结果：哪些条目的决定依据已与当前原文不一致。 */
+export function reconcileMerged(doc: DocState, merged: MergedVersion): ReconcileEntry[] {
+  return merged.items.map((item) => reconcileMergedItem(doc, item));
 }
 
 /** 重新决定合并版本中处于待审的条目。 */

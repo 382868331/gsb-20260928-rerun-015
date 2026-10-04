@@ -7,7 +7,9 @@ import {
   ReviewJudgment,
   canFreeze,
   reconcileBranch,
+  reconcileMergedItem,
 } from '../core/reviewBranch';
+import { exportReviewJSON } from '../core/exportDoc';
 
 const ACTION_LABELS = { accept: '接受', edit: '修改', reject: '驳回' } as const;
 const KIND_LABELS = { common: '共同修改', onlyA: '仅甲', onlyB: '仅乙', conflict: '冲突' } as const;
@@ -17,6 +19,16 @@ const RECONCILE_LABELS = {
   removed: '已拆并（原段不存在）',
   new: '新增段落',
 } as const;
+
+function download(filename: string, content: string): void {
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
 
 function JudgmentEditor({ branch }: { branch: ReviewBranch }) {
   const store = useDocStore();
@@ -128,19 +140,31 @@ function MergeItemRow({ item, mergedId }: { item: MergeItem; mergedId: string })
   const store = useDocStore();
   const { doc } = store;
   const unit = doc.units.find((u) => u.id === item.unitId);
-  const segment = doc.segments.find((s) => s.id === item.segmentId);
+  const reconcile = reconcileMergedItem(doc, item);
   const describe = (j?: ReviewJudgment) =>
     j ? `${ACTION_LABELS[j.action]}${j.action === 'edit' ? ` → ${j.revisedText}` : ''}${j.rationale ? `（${j.rationale}）` : ''}` : '—';
   return (
     <div className={`merge-item ${item.kind} ${item.pending ? 'pending' : ''}`}>
       <div className="merge-item-head">
         <span className={`badge kind-${item.kind}`}>{KIND_LABELS[item.kind]}</span>
-        <span className="source-text">{segment?.text ?? item.segmentId}</span>
-        <span className="unit-text">{unit?.text ?? ''}</span>
+        <span className="source-text">{item.sourceText}</span>
+        <span className="unit-text">{item.unitText}</span>
+        {reconcile.status === 'recheck' && (
+          <span className="badge rec-recheck">原文已改·需复核</span>
+        )}
+        {reconcile.status === 'removed' && (
+          <span className="badge rec-removed">原段已拆并</span>
+        )}
         {item.pending && <span className="badge review">待审（已撤回）</span>}
         {!item.pending && item.resolved && <span className="badge translated">已决定</span>}
         {!item.pending && !item.resolved && <span className="badge review">未决定</span>}
       </div>
+      {reconcile.status !== 'applies' && (
+        <p className="hint">
+          当前原文：{reconcile.currentText ?? '（原段已不存在）'}（合并依据仍为创建时原文：
+          {item.sourceText}）
+        </p>
+      )}
       {item.kind === 'conflict' && !item.resolved && (
         <div className="conflict-picker">
           <span>甲：{describe(item.a)}</span>
@@ -316,6 +340,14 @@ export function ReviewBoard() {
       })}
 
       <h2>发布冻结快照</h2>
+      <div className="merge-controls-row">
+        <button
+          type="button"
+          onClick={() => download(`${doc.title}.review.json`, exportReviewJSON(doc, review))}
+        >
+          导出审阅报告（合并依据 / 当前修订 / 冻结快照）
+        </button>
+      </div>
       {review.freezes.length === 0 && <p className="hint">尚无冻结版本。</p>}
       {review.freezes.map((freeze) => (
         <details key={freeze.id} className="freeze-card">

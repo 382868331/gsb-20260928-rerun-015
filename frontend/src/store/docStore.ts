@@ -165,7 +165,7 @@ export const useDocStore = create<DocStore>((set, get) => ({
   mergeReviewBranches: (branchIdA, branchIdB) => {
     let mergedId: string | null = null;
     set((s) => {
-      const result = mergeBranches(s.review, branchIdA, branchIdB);
+      const result = mergeBranches(s.review, s.doc, branchIdA, branchIdB);
       mergedId = result.mergedId;
       return { review: result.ws, dirty: true };
     });

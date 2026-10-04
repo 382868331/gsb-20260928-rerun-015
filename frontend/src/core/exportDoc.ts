@@ -1,5 +1,11 @@
 import { DocState } from './model';
 import { linkReviewCategory } from './terms';
+import {
+  MergedVersion,
+  ReleaseFreeze,
+  ReviewWorkspaceState,
+  reconcileMergedItem,
+} from './reviewBranch';
 
 export interface ExportedSegment {
   index: number;
@@ -91,6 +97,101 @@ export function buildExport(state: DocState): ExportPayload {
 
 export function exportJSON(state: DocState): string {
   return JSON.stringify(buildExport(state), null, 2);
+}
+
+/** 审阅导出中单个合并条目：固定创建时快照，并单独标注当前原文变化。 */
+export interface ExportedMergeItem {
+  segmentId: string;
+  unitId: string;
+  kind: MergedVersion['items'][number]['kind'];
+  /** 合并创建时固定的原文与译文（决定依据所针对的内容）。 */
+  sourceAtMerge: string;
+  translationAtMerge: string;
+  /** 当前主文档中的原文；段落被拆并时为 null。 */
+  currentSource: string | null;
+  /** applies=仍适用；recheck=原文已变需复核；removed=原段已拆并。 */
+  reconcileStatus: 'applies' | 'recheck' | 'removed';
+  pending: boolean;
+  resolved: boolean;
+  resolution?: {
+    action: string;
+    revisedText?: string;
+    rationale?: string;
+    decidedAt: string;
+  };
+}
+
+export interface ReviewExportPayload {
+  /** 导出时的当前主文档标题（当前修订）。 */
+  currentTitle: string;
+  exportedAt: string;
+  mergedVersions: Array<{
+    id: string;
+    createdAt: string;
+    items: ExportedMergeItem[];
+  }>;
+  /** 发布冻结快照：内容独立保存，不随主文档或合并版本变化。 */
+  freezes: Array<{
+    id: string;
+    mergedVersionId: string;
+    frozenAt: string;
+    title: string;
+    segments: ReleaseFreeze['segments'];
+    decisions: ReleaseFreeze['decisions'];
+  }>;
+}
+
+/**
+ * 审阅导出：原合并依据（创建时快照）、当前修订与冻结内容分列，
+ * 保存重开后三者仍可区分。
+ */
+export function buildReviewExport(
+  state: DocState,
+  review: ReviewWorkspaceState,
+  exportedAt = new Date().toISOString(),
+): ReviewExportPayload {
+  return {
+    currentTitle: state.title,
+    exportedAt,
+    mergedVersions: review.mergedVersions.map((merged) => ({
+      id: merged.id,
+      createdAt: merged.createdAt,
+      items: merged.items.map((item) => {
+        const entry = reconcileMergedItem(state, item);
+        return {
+          segmentId: item.segmentId,
+          unitId: item.unitId,
+          kind: item.kind,
+          sourceAtMerge: item.sourceText,
+          translationAtMerge: item.unitText,
+          currentSource: entry.currentText ?? null,
+          reconcileStatus: entry.status === 'new' ? 'recheck' : entry.status,
+          pending: item.pending,
+          resolved: item.resolved,
+          resolution: item.resolution
+            ? {
+                action: item.resolution.action,
+                revisedText: item.resolution.revisedText,
+                rationale: item.resolution.rationale,
+                decidedAt: item.resolution.decidedAt,
+              }
+            : undefined,
+        };
+      }),
+    })),
+    freezes: review.freezes.map((freeze) => ({
+      id: freeze.id,
+      mergedVersionId: freeze.mergedVersionId,
+      frozenAt: freeze.frozenAt,
+      title: freeze.title,
+      segments: freeze.segments,
+      decisions: freeze.decisions,
+    })),
+  };
+}
+
+export function exportReviewJSON(state: DocState, review: ReviewWorkspaceState): string {
+  return JSON.stringify(buildReviewExport(state, review), null, 2);
 }
 
 /** 双语纯文本：标题与段落按当前顺序，译文缺失时标注 [待翻译/待核对]。 */
