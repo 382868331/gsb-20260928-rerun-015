@@ -5,6 +5,7 @@ import { checkIntegrity } from '../core/integrity';
 import { exportBilingual, exportJSON } from '../core/exportDoc';
 import { SegmentRow } from './SegmentRow';
 import { ReviewWorkspace } from './ReviewWorkspace';
+import { ReviewBranches } from './ReviewBranches';
 import { TermPanel } from './TermPanel';
 
 function download(filename: string, content: string): void {
@@ -173,6 +174,7 @@ export function App() {
       </main>
 
       <ReviewWorkspace />
+      <ReviewBranches />
       <TermPanel />
     </div>
   );
