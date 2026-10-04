@@ -165,7 +165,7 @@ export const useDocStore = create<DocStore>((set, get) => ({
   mergeReviewBranches: (branchIdA, branchIdB) => {
     let mergedId: string | null = null;
     set((s) => {
-      const result = mergeBranches(s.review, branchIdA, branchIdB);
+      const result = mergeBranches(s.review, s.doc, branchIdA, branchIdB);
       mergedId = result.mergedId;
       return { review: result.ws, dirty: true };
     });
@@ -174,7 +174,7 @@ export const useDocStore = create<DocStore>((set, get) => ({
 
   resolveMergeConflict: (mergedId, segmentId, unitId, resolution) =>
     set((s) => ({
-      review: resolveConflict(s.review, mergedId, segmentId, unitId, resolution),
+      review: resolveConflict(s.review, s.doc, mergedId, segmentId, unitId, resolution),
       dirty: true,
     })),
 
@@ -185,7 +185,7 @@ export const useDocStore = create<DocStore>((set, get) => ({
     })),
 
   redecideMerged: (mergedId, resolution) =>
-    set((s) => ({ review: redecideMergedItem(s.review, mergedId, resolution), dirty: true })),
+    set((s) => ({ review: redecideMergedItem(s.review, s.doc, mergedId, resolution), dirty: true })),
 
   freeze: (mergedId) => {
     let freezeId: string | null = null;

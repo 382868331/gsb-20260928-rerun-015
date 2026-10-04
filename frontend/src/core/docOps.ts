@@ -9,7 +9,7 @@ function clone(state: DocState): DocState {
     title: state.title,
     segments: state.segments.map((s) => ({ ...s })),
     units: state.units.map((u) => ({ ...u })),
-    links: state.links.map((l) => ({ ...l })),
+    links: state.links.map((l) => ({ ...l, originSegmentIds: l.originSegmentIds ? [...l.originSegmentIds] : undefined })),
     termDecisions: (state.termDecisions ?? []).map((d) => ({ ...d })),
   };
 }
@@ -111,7 +111,7 @@ function inheritLinks(
   next: DocState,
   newSegmentIds: string[],
   inheritedUnitIds: string[],
-  sourceBefore: string,
+  origins: { sourceBefore: string; originsByUnit: Map<string, string[]> },
 ): void {
   for (const segmentId of newSegmentIds) {
     for (const unitId of inheritedUnitIds) {
@@ -121,7 +121,8 @@ function inheritLinks(
       next.links.push({
         segmentId,
         unitId,
-        sourceBefore,
+        sourceBefore: origins.sourceBefore,
+        originSegmentIds: origins.originsByUnit.get(unitId),
         priorConfirmedSource: prior?.confirmedSource ?? prior?.priorConfirmedSource,
         priorConfirmedTerms: prior?.confirmedTerms ?? prior?.priorConfirmedTerms,
       });
@@ -154,14 +155,22 @@ export function splitSegment(
     }));
   if (newSegments.length === 0) return { state: next, meta: { type: 'split' } };
 
+  const originsByUnit = new Map<string, string[]>();
+  for (const unitId of inheritedUnits) {
+    const ancestors = new Set<string>([segmentId]);
+    for (const link of next.links) {
+      if (link.segmentId === segmentId && link.unitId === unitId) {
+        for (const origin of link.originSegmentIds ?? []) ancestors.add(origin);
+      }
+    }
+    originsByUnit.set(unitId, [...ancestors]);
+  }
   next.segments.splice(index, 1, ...newSegments);
   next.links = next.links.filter((l) => l.segmentId !== segmentId);
-  inheritLinks(
-    next,
-    newSegments.map((s) => s.id),
-    inheritedUnits,
-    original.text,
-  );
+  inheritLinks(next, newSegments.map((s) => s.id), inheritedUnits, {
+    sourceBefore: original.text,
+    originsByUnit,
+  });
   markUnitsReview(next, new Set(inheritedUnits), '段落已拆分，请核对并重新指定译文对应');
 
   return {
@@ -206,15 +215,26 @@ export function mergeSegments(
   next.segments.splice(first, 0, merged);
 
   const removed = new Set(segmentIds);
-  const inheritedLinks = next.links.filter((l) => removed.has(l.segmentId));
+  const inheritedLinksBefore = next.links.filter((l) => removed.has(l.segmentId));
+  const originsByUnit = new Map<string, string[]>();
+  for (const unitId of inheritedUnits) {
+    const ancestors = new Set<string>(segmentIds);
+    for (const link of inheritedLinksBefore) {
+      if (link.unitId === unitId) {
+        for (const origin of link.originSegmentIds ?? []) ancestors.add(origin);
+      }
+    }
+    originsByUnit.set(unitId, [...ancestors]);
+  }
   next.links = next.links.filter((l) => !removed.has(l.segmentId));
   const sourceBefore = mergedSegments.map((s) => s.text).join(separator);
   for (const unitId of inheritedUnits) {
-    const oldLink = inheritedLinks.find((l) => l.unitId === unitId);
+    const oldLink = inheritedLinksBefore.find((l) => l.unitId === unitId);
     next.links.push({
       segmentId: merged.id,
       unitId,
       sourceBefore,
+      originSegmentIds: originsByUnit.get(unitId),
       priorConfirmedSource: oldLink?.confirmedSource ?? oldLink?.priorConfirmedSource,
       priorConfirmedTerms: oldLink?.confirmedTerms ?? oldLink?.priorConfirmedTerms,
     });

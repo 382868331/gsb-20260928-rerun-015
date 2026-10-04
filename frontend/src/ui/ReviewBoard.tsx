@@ -6,6 +6,7 @@ import {
   ReviewBranch,
   ReviewJudgment,
   canFreeze,
+  reconcileMergedVersion,
   reconcileBranch,
 } from '../core/reviewBranch';
 
@@ -15,6 +16,12 @@ const RECONCILE_LABELS = {
   applies: '仍适用',
   recheck: '必须复核',
   removed: '已拆并（原段不存在）',
+  new: '新增段落',
+} as const;
+const DRIFT_LABELS = {
+  applies: '与冻结依据一致',
+  recheck: '原文/译文已变·需复核',
+  removed: '原段已拆分或合并',
   new: '新增段落',
 } as const;
 
@@ -129,18 +136,48 @@ function MergeItemRow({ item, mergedId }: { item: MergeItem; mergedId: string })
   const { doc } = store;
   const unit = doc.units.find((u) => u.id === item.unitId);
   const segment = doc.segments.find((s) => s.id === item.segmentId);
+  const currentUnitText = unit?.text;
+  const currentSourceText = segment?.text;
   const describe = (j?: ReviewJudgment) =>
     j ? `${ACTION_LABELS[j.action]}${j.action === 'edit' ? ` → ${j.revisedText}` : ''}${j.rationale ? `（${j.rationale}）` : ''}` : '—';
+  const sourceChanged = currentSourceText !== undefined && currentSourceText !== item.frozen.sourceText;
+  const unitChanged = (currentUnitText ?? '') !== item.frozen.unitText;
+  const removed = !segment;
+  const needsRecheck = sourceChanged || unitChanged || removed;
   return (
     <div className={`merge-item ${item.kind} ${item.pending ? 'pending' : ''}`}>
       <div className="merge-item-head">
         <span className={`badge kind-${item.kind}`}>{KIND_LABELS[item.kind]}</span>
-        <span className="source-text">{segment?.text ?? item.segmentId}</span>
-        <span className="unit-text">{unit?.text ?? ''}</span>
+        <span className="source-text">{item.frozen.sourceText || item.segmentId}</span>
+        <span className="unit-text">{item.frozen.resolvedText || item.frozen.unitText}</span>
         {item.pending && <span className="badge review">待审（已撤回）</span>}
         {!item.pending && item.resolved && <span className="badge translated">已决定</span>}
         {!item.pending && !item.resolved && <span className="badge review">未决定</span>}
+        {needsRecheck && !item.pending && <span className="badge review">{DRIFT_LABELS[removed ? 'removed' : 'recheck']}</span>}
       </div>
+      <p className="hint">合并依据（创建时冻结，不随后续修订变化）</p>
+      <div className="frozen-basis">
+        <div className="frozen-line">原文：{item.frozen.sourceText || '（空）'}</div>
+        <div className="frozen-line">当时译文：{item.frozen.unitText || '（空）'}</div>
+        {item.frozen.rationale && <div className="frozen-line">裁决依据：{item.frozen.rationale}</div>}
+      </div>
+      {needsRecheck && (
+        <div className="current-drift">
+          <p className="hint">当前主文档（仅供对照，需复核后才能作为新决定依据）</p>
+          {removed ? (
+            <div className="drift-line">原段落 {item.segmentId} 已被拆分/合并删除，旧结论不自动套用到新段落。</div>
+          ) : (
+            <>
+              {sourceChanged && (
+                <div className="drift-line">当前原文：{currentSourceText}</div>
+              )}
+              {unitChanged && (
+                <div className="drift-line">当前译文：{currentUnitText || '（空）'}</div>
+              )}
+            </>
+          )}
+        </div>
+      )}
       {item.kind === 'conflict' && !item.resolved && (
         <div className="conflict-picker">
           <span>甲：{describe(item.a)}</span>
@@ -185,7 +222,7 @@ function MergeItemRow({ item, mergedId }: { item: MergeItem; mergedId: string })
                   segmentId: item.segmentId,
                   unitId: item.unitId,
                   action,
-                  revisedText: action === 'edit' ? item.resolution?.revisedText ?? unit?.text : undefined,
+                  revisedText: action === 'edit' ? item.frozen.resolvedText || item.frozen.unitText : undefined,
                   rationale: '撤回后重新决定',
                   decidedAt: new Date().toISOString(),
                 })
@@ -280,6 +317,7 @@ export function ReviewBoard() {
         const branchA = review.branches.find((b) => b.id === merged.branchIds[0]);
         const branchB = review.branches.find((b) => b.id === merged.branchIds[1]);
         const frozen = review.freezes.some((f) => f.mergedVersionId === merged.id);
+        const reconcile = reconcileMergedVersion(doc, merged);
         return (
           <div key={merged.id} className="merged-version">
             <h3>
@@ -287,11 +325,20 @@ export function ReviewBoard() {
               {frozen && <span className="badge translated">已冻结</span>}
             </h3>
             <p className="hint">
+               冻结标题：{merged.titleSnapshot}
+              {reconcile.titleChanged && (
+                <span className="bad"> · 当前标题已改为：{reconcile.currentTitle}（旧决定仍依据冻结标题，需复核）</span>
+              )}
+            </p>
+            <p className="hint">
               共同 {merged.items.filter((i) => i.kind === 'common').length} · 仅甲{' '}
               {merged.items.filter((i) => i.kind === 'onlyA').length} · 仅乙{' '}
               {merged.items.filter((i) => i.kind === 'onlyB').length} · 冲突{' '}
               {merged.items.filter((i) => i.kind === 'conflict').length} · 未决定{' '}
               {merged.items.filter((i) => !i.resolved || i.pending).length}
+              {reconcile.recheckItems.length > 0 && (
+                <span className="bad"> · 需复核 {reconcile.recheckItems.length} 项</span>
+              )}
             </p>
             {merged.items.map((item) => (
               <MergeItemRow key={item.segmentId + item.unitId} item={item} mergedId={merged.id} />
@@ -323,7 +370,10 @@ export function ReviewBoard() {
             冻结 {freeze.id.slice(0, 10)} · {new Date(freeze.frozenAt).toLocaleString()} ·{' '}
             {freeze.decisions.length} 项决定
           </summary>
-          <p className="hint">冻结内容不可变；之后的审阅与合并不会影响此快照。</p>
+          <p className="hint">
+            冻结内容不可变；之后的审阅与合并不会影响此快照。裁决标题：{freeze.title}
+            {freeze.currentTitle !== freeze.title && ` · 冻结时当前标题：${freeze.currentTitle}（已修订，仅对照）`}
+          </p>
           {freeze.segments.map((segment) => {
             const decisions = freeze.decisions.filter((d) => d.segmentId === segment.id);
             return (
@@ -333,6 +383,9 @@ export function ReviewBoard() {
                   <div key={d.unitId} className="freeze-decision">
                     {ACTION_LABELS[d.action]} → {d.text}
                     {d.rationale ? `（依据：${d.rationale}）` : ''}
+                    {d.currentSourceText !== undefined && d.currentSourceText !== d.sourceText && (
+                      <div className="drift-line">冻结时当前原文已不同：{d.currentSourceText}（需复核，不属本冻结裁决）</div>
+                    )}
                   </div>
                 ))}
               </div>

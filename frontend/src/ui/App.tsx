@@ -65,10 +65,10 @@ export function App() {
           <button type="button" className="primary" onClick={() => store.save()}>
             保存
           </button>
-          <button type="button" onClick={() => download(`${doc.title}.json`, exportJSON(doc))}>
+          <button type="button" onClick={() => download(`${doc.title}.json`, exportJSON(doc, store.review))}>
             导出 JSON
           </button>
-          <button type="button" onClick={() => download(`${doc.title}.txt`, exportBilingual(doc))}>
+          <button type="button" onClick={() => download(`${doc.title}.txt`, exportBilingual(doc, store.review))}>
             导出双语文本
           </button>
           <button type="button" onClick={() => store.resetToSample()}>
