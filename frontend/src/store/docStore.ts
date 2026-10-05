@@ -19,6 +19,7 @@ import {
   requestRetranslation,
 } from '../core/reviewWorkspace';
 import { createTermDecision, decideTermOnLink, revokeTermDecision, reviseTermDecision } from '../core/terms';
+import { applyCoordination, planCoordination, withdrawCoordination } from '../core/termCoordination';
 import {
   ReviewJudgment,
   ReviewWorkspaceState,
@@ -108,6 +109,9 @@ interface DocStore {
     type: 'applied' | 'kept' | 'deferred',
     options?: { rationale?: string; revisedText?: string },
   ) => void;
+  planTermCoordination: (decisionId: string, language: LanguageCode, from: string) => string | null;
+  applyTermCoordination: (coordinationId: string) => void;
+  withdrawTermCoordination: (coordinationId: string) => void;
   setTitle: (title: string) => void;
   createReviewBranch: (reviewer: string) => string | null;
   judge: (branchId: string, judgment: ReviewJudgment) => void;
@@ -367,6 +371,38 @@ export const useDocStore = create<DocStore>((set, get) => ({
   decideTerm: (segmentId, unitId, decisionId, type, options) =>
     set((s) => ({
       doc: decideTermOnLink(s.doc, segmentId, unitId, decisionId, type, options),
+      past: [...s.past, deepClone(s.doc)].slice(-HISTORY_LIMIT),
+      future: [],
+      dirty: true,
+    })),
+
+  planTermCoordination: (decisionId, language, from) => {
+    let coordinationId: string | null = null;
+    set((s) => {
+      const result = planCoordination(s.doc, decisionId, language, from);
+      if (!result.coordinationId) return {};
+      coordinationId = result.coordinationId;
+      return {
+        doc: result.state,
+        past: [...s.past, deepClone(s.doc)].slice(-HISTORY_LIMIT),
+        future: [],
+        dirty: true,
+      };
+    });
+    return coordinationId;
+  },
+
+  applyTermCoordination: (coordinationId) =>
+    set((s) => ({
+      doc: applyCoordination(s.doc, coordinationId).state,
+      past: [...s.past, deepClone(s.doc)].slice(-HISTORY_LIMIT),
+      future: [],
+      dirty: true,
+    })),
+
+  withdrawTermCoordination: (coordinationId) =>
+    set((s) => ({
+      doc: withdrawCoordination(s.doc, coordinationId),
       past: [...s.past, deepClone(s.doc)].slice(-HISTORY_LIMIT),
       future: [],
       dirty: true,

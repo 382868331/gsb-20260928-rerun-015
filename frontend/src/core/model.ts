@@ -64,7 +64,63 @@ export interface TermDisposition {
   rationale?: string;
   /** 按新术语修改时，人工产出的新译文文本，便于审计对照。 */
   revisedText?: string;
+  /** 由哪一次跨段协调产生的处置；缺省为逐段独立裁决。 */
+  coordinationId?: string;
   decidedAt: string;
+}
+
+/** 跨段术语一致性协调中，一处冲突出现位置的分类。 */
+export type CoordinationTargetKind =
+  /** 真正同一概念：可直接纳入协调替换。 */
+  | 'same-concept'
+  /** 同文不同语境：审阅者已声明必须保留的例外语境，协调不得覆盖。 */
+  | 'different-context'
+  /** 段落拆合后的来源：同一概念，但链路经拆分/合并继承而来，需展示来源。 */
+  | 'split-origin';
+
+/** 协调方案中的一项目标位置（某段某语言译文中的一处冲突）。 */
+export interface CoordinationTarget {
+  segmentId: string;
+  unitId: string;
+  language: LanguageCode;
+  kind: CoordinationTargetKind;
+  /** 是否可纳入本次协调替换（例外语境永远为 false）。 */
+  eligible: boolean;
+  /** 不可纳入的原因（如已声明例外语境及其依据）。 */
+  blockReason?: string;
+  /** 形成方案时的译文文本。 */
+  currentText: string;
+  /** 协调替换后的译文文本。 */
+  proposedText?: string;
+  /** 拆合谱系来源段 id（split-origin 时给出）。 */
+  originSegmentIds?: string[];
+  /** 形成方案时的原文指纹：确认时原文若变，仅该目标被阻止。 */
+  sourceFingerprintAtPlan: string;
+  /** 形成方案时的术语决定版本：决定修订后本方案目标需重新核对。 */
+  decisionVersionAtPlan: number;
+}
+
+/**
+ * 跨段术语一致性协调：针对某术语决定在某语言下的一处冲突译法，
+ * 把一组可协调位置统一替换为采用译法。例外语境与未批准段落不被覆盖；
+ * 撤回协调只收回本次处置，后续独立裁决保留。
+ */
+export interface TermCoordination {
+  id: string;
+  decisionId: string;
+  term: string;
+  language: LanguageCode;
+  /** 冲突译法（被替换的旧译法）。 */
+  from: string;
+  /** 采用译法（替换为目标）。 */
+  to: string;
+  createdAt: string;
+  targets: CoordinationTarget[];
+  status: 'draft' | 'applied' | 'withdrawn';
+  appliedAt?: string;
+  withdrawnAt?: string;
+  /** 确认时实际应用的目标键（segmentId::unitId），用于撤回时精确定位。 */
+  appliedKeys?: string[];
 }
 
 /** 源文段落 <-> 译文单元 多对多关联（join 表）。 */
@@ -101,6 +157,7 @@ export interface DocState {
   units: TranslationUnit[];
   links: SegmentUnitLink[];
   termDecisions: TermDecision[];
+  coordinations?: TermCoordination[];
 }
 
 export interface OpMeta {

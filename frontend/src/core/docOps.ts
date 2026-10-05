@@ -11,6 +11,7 @@ function clone(state: DocState): DocState {
     units: state.units.map((u) => ({ ...u })),
     links: state.links.map((l) => ({ ...l, originSegmentIds: l.originSegmentIds ? [...l.originSegmentIds] : undefined })),
     termDecisions: (state.termDecisions ?? []).map((d) => ({ ...d })),
+    coordinations: state.coordinations ? JSON.parse(JSON.stringify(state.coordinations)) : undefined,
   };
 }
 

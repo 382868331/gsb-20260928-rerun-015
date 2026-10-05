@@ -2,6 +2,94 @@ import { useMemo, useState } from 'react';
 import { useDocStore } from '../store/docStore';
 import { LANGUAGE_LABELS, LanguageCode, TermRendering } from '../core/model';
 import { activeTermDecisions, findTermUsages } from '../core/terms';
+import { previewCoordination } from '../core/termCoordination';
+
+const KIND_LABELS = {
+  'same-concept': '同一概念',
+  'different-context': '例外语境',
+  'split-origin': '拆合来源',
+} as const;
+
+/** 单个术语决定下的跨段协调：形成方案、预览影响、确认或撤回。 */
+function CoordinationSection({ decisionId }: { decisionId: string }) {
+  const doc = useDocStore((s) => s.doc);
+  const planTermCoordination = useDocStore((s) => s.planTermCoordination);
+  const applyTermCoordination = useDocStore((s) => s.applyTermCoordination);
+  const withdrawTermCoordination = useDocStore((s) => s.withdrawTermCoordination);
+  const [language, setLanguage] = useState<LanguageCode>('en');
+  const [from, setFrom] = useState('');
+  const plans = (doc.coordinations ?? []).filter((c) => c.decisionId === decisionId);
+
+  return (
+    <div className="coordination-section">
+      <h4>跨段一致性协调</h4>
+      <div className="coordination-form">
+        <select value={language} onChange={(e) => setLanguage(e.target.value as LanguageCode)}>
+          {LANGUAGES.map((lang) => (
+            <option key={lang} value={lang}>{LANGUAGE_LABELS[lang]}</option>
+          ))}
+        </select>
+        <input
+          aria-label="冲突译法"
+          placeholder="冲突译法（旧译法）"
+          value={from}
+          onChange={(e) => setFrom(e.target.value)}
+        />
+        <button
+          type="button"
+          disabled={!from.trim()}
+          onClick={() => {
+            if (planTermCoordination(decisionId, language, from.trim())) setFrom('');
+          }}
+        >
+          形成协调方案
+        </button>
+      </div>
+      {plans.map((plan) => {
+        const preview = plan.status === 'draft' ? previewCoordination(doc, plan.id) : null;
+        return (
+          <article key={plan.id} className="coordination-card">
+            <header className="term-decision-head">
+              <span>
+                <code>{plan.language}</code> “{plan.from}” → “{plan.to}”
+              </span>
+              <code>{plan.status === 'draft' ? '草案' : plan.status === 'applied' ? '已确认' : '已撤回'}</code>
+              {plan.status === 'draft' && (
+                <button type="button" className="primary" onClick={() => applyTermCoordination(plan.id)}>
+                  确认协调（{preview?.applicableCount ?? 0} 处可应用）
+                </button>
+              )}
+              {plan.status === 'applied' && (
+                <button type="button" onClick={() => withdrawTermCoordination(plan.id)}>撤回协调</button>
+              )}
+            </header>
+            <ul>
+              {plan.targets.map((target) => {
+                const item = preview?.items.find(
+                  (i) => i.target.segmentId === target.segmentId && i.target.unitId === target.unitId,
+                );
+                return (
+                  <li key={`${target.segmentId}:${target.unitId}`}>
+                    <span className={target.eligible ? 'ok' : 'bad'}>{KIND_LABELS[target.kind]}</span>{' '}
+                    <span className="hint">{target.currentText.slice(0, 40)}</span>
+                    {target.proposedText && target.eligible && (
+                      <span> → {target.proposedText.slice(0, 40)}</span>
+                    )}
+                    {target.originSegmentIds && (
+                      <span className="hint">（来源段：{target.originSegmentIds.join(', ')}）</span>
+                    )}
+                    {item?.action === 'skip' && <span className="bad">跳过：{item.skipReason}</span>}
+                    {!target.eligible && <span className="bad">{target.blockReason}</span>}
+                  </li>
+                );
+              })}
+            </ul>
+          </article>
+        );
+      })}
+    </div>
+  );
+}
 
 const LANGUAGES: LanguageCode[] = ['en', 'ja', 'fr', 'de'];
 
@@ -133,6 +221,7 @@ export function TermPanel() {
                 </li>
               ))}
             </ul>
+            <CoordinationSection decisionId={decision.id} />
           </article>
         ))}
         {doc.termDecisions.some((d) => d.revokedAt) && (
