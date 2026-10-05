@@ -11,6 +11,7 @@ function clone(state: DocState): DocState {
     units: state.units.map((u) => ({ ...u })),
     links: state.links.map((l) => ({ ...l, originSegmentIds: l.originSegmentIds ? [...l.originSegmentIds] : undefined })),
     termDecisions: (state.termDecisions ?? []).map((d) => ({ ...d })),
+    termCoordinations: (state.termCoordinations ?? []).map((c) => ({ ...c, items: c.items.map((i) => ({ ...i, originSegmentIds: [...i.originSegmentIds] })) })),
   };
 }
 
@@ -33,6 +34,7 @@ export function createDocument(title: string, lines: Array<{ kind?: SegmentKind;
     units: [],
     links: [],
     termDecisions: [],
+    termCoordinations: [],
   };
 }
 

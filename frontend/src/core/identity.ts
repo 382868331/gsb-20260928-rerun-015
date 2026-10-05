@@ -7,7 +7,7 @@ export function setIdSequence(fn: (() => string) | null): void {
   seqFn = fn;
 }
 
-export function nextId(prefix: 'seg' | 'unit' | 'term'): string {
+export function nextId(prefix: 'seg' | 'unit' | 'term' | 'coordination'): string {
   if (seqFn) return seqFn();
   counter += 1;
   return `${prefix}_${Date.now().toString(36)}_${counter}_${Math.random().toString(36).slice(2, 8)}`;

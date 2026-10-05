@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useDocStore } from '../store/docStore';
 import { LANGUAGE_LABELS, LanguageCode, TermRendering } from '../core/model';
 import { activeTermDecisions, findTermUsages } from '../core/terms';
+import { TermCoordinationPanel } from './TermCoordinationPanel';
 
 const LANGUAGES: LanguageCode[] = ['en', 'ja', 'fr', 'de'];
 
@@ -13,10 +14,10 @@ export function TermPanel() {
   const revokeTerm = useDocStore((s) => s.revokeTerm);
   const [term, setTerm] = useState('');
   const emptyRenderings = () => ({
-    en: { adopted: '', scope: '' },
-    ja: { adopted: '', scope: '' },
-    fr: { adopted: '', scope: '' },
-    de: { adopted: '', scope: '' },
+    en: { adopted: '', scope: '', allowed: '', exceptionContexts: '' },
+    ja: { adopted: '', scope: '', allowed: '', exceptionContexts: '' },
+    fr: { adopted: '', scope: '', allowed: '', exceptionContexts: '' },
+    de: { adopted: '', scope: '', allowed: '', exceptionContexts: '' },
   });
   const [renderings, setRenderings] = useState(emptyRenderings());
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -32,6 +33,8 @@ export function TermPanel() {
       language: lang,
       adopted: renderings[lang].adopted.trim(),
       scope: renderings[lang].scope.trim(),
+      allowed: renderings[lang].allowed.split(/[;；,，]/).map((v) => v.trim()).filter(Boolean),
+      exceptionContexts: renderings[lang].exceptionContexts.split(/[;；,，]/).map((v) => v.trim()).filter(Boolean),
     }));
 
   const submit = () => {
@@ -47,7 +50,12 @@ export function TermPanel() {
     setEditingId(decisionId);
     setTerm(decision.term);
     const next = emptyRenderings();
-    for (const r of decision.renderings) next[r.language] = { adopted: r.adopted, scope: r.scope };
+    for (const r of decision.renderings) next[r.language] = {
+      adopted: r.adopted,
+      scope: r.scope,
+      allowed: (r.allowed ?? []).join('；'),
+      exceptionContexts: (r.exceptionContexts ?? []).join('；'),
+    };
    setRenderings(next);
  };
 
@@ -80,6 +88,22 @@ export function TermPanel() {
                 value={renderings[lang].scope}
                 onChange={(e) =>
                   setRenderings((prev) => ({ ...prev, [lang]: { ...prev[lang], scope: e.target.value } }))
+                }
+              />
+              <input
+                aria-label={`${lang} 允许译法`}
+                placeholder="允许译法（分号分隔）"
+                value={renderings[lang].allowed}
+                onChange={(e) =>
+                  setRenderings((prev) => ({ ...prev, [lang]: { ...prev[lang], allowed: e.target.value } }))
+                }
+              />
+              <input
+                aria-label={`${lang} 例外语境`}
+                placeholder="必须保留的例外语境"
+                value={renderings[lang].exceptionContexts}
+                onChange={(e) =>
+                  setRenderings((prev) => ({ ...prev, [lang]: { ...prev[lang], exceptionContexts: e.target.value } }))
                 }
               />
             </div>
@@ -139,6 +163,7 @@ export function TermPanel() {
           <p className="hint">已撤销的术语决定保留备查；撤销不会恢复其他轮次的确认。</p>
         )}
       </div>
+      <TermCoordinationPanel />
     </section>
   );
 }

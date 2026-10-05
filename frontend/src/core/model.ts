@@ -36,6 +36,10 @@ export interface TermRendering {
   adopted: string;
   /** 适用范围说明，例如仅限产品界面、合同语境除外。 */
   scope: string;
+  /** 审阅者声明可接受的其他译法；协调候选不得把这些用法一概判错。 */
+  allowed?: string[];
+  /** 必须保留既有译法的语境关键词或说明，命中后不得执行协调替换。 */
+  exceptionContexts?: string[];
 }
 
 /** 术语决定（含修订沿革）。撤销决定是把 revokedAt 置位，而不是删除记录。 */
@@ -51,6 +55,37 @@ export interface TermDecision {
   revokedAt?: string;
 }
 
+export type TermCoordinationStatus = 'draft' | 'confirmed' | 'withdrawn';
+
+export interface TermCoordinationItem {
+  segmentId: string;
+  unitId: string;
+  language: LanguageCode;
+  /** 候选区分：同一概念、同文不同语境（同形异义）、段落拆合后的来源。 */
+  candidateKind: 'same_concept' | 'different_context' | 'split_merged_origin';
+  beforeText: string;
+  afterText: string;
+  sourceText: string;
+  originSegmentIds: string[];
+  eligible: boolean;
+  blockedReasons: string[];
+}
+
+/** 一组经用户勾选确认的跨段术语协调替换，只记录已批准的具体链路。 */
+export interface TermCoordination {
+  id: string;
+  decisionId: string;
+  decisionVersion: number;
+  language: LanguageCode;
+  term: string;
+  targetRendering: string;
+  status: TermCoordinationStatus;
+  items: TermCoordinationItem[];
+  confirmedAt?: string;
+  withdrawnAt?: string;
+  withdrawReason?: string;
+}
+
 /** 逐段逐语言对术语变化的人工处置类型。 */
 export type TermDispositionType = 'applied' | 'kept' | 'deferred';
 
@@ -64,6 +99,8 @@ export interface TermDisposition {
   rationale?: string;
   /** 按新术语修改时，人工产出的新译文文本，便于审计对照。 */
   revisedText?: string;
+  /** 该处置由哪一组协调产生；独立逐段裁决不填。 */
+  coordinationId?: string;
   decidedAt: string;
 }
 
@@ -101,6 +138,7 @@ export interface DocState {
   units: TranslationUnit[];
   links: SegmentUnitLink[];
   termDecisions: TermDecision[];
+  termCoordinations: TermCoordination[];
 }
 
 export interface OpMeta {

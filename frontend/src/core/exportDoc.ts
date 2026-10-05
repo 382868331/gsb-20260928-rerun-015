@@ -72,6 +72,23 @@ export interface ExportPayload {
       driftStatus?: string;
     }>;
   }>;
+  termCoordinations?: Array<{
+    coordinationId: string;
+    term: string;
+    language: string;
+    targetRendering: string;
+    status: string;
+    items: Array<{
+      segmentId: string;
+      unitId: string;
+      candidateKind: string;
+      beforeText: string;
+      afterText: string;
+      eligible: boolean;
+      blockedReasons: string[];
+      originSegmentIds: string[];
+    }>;
+  }>;
 }
 
 export function buildExport(state: DocState, review?: ReviewWorkspaceState): ExportPayload {
@@ -183,6 +200,23 @@ export function buildExport(state: DocState, review?: ReviewWorkspaceState): Exp
       })),
     }));
   }
+  payload.termCoordinations = (state.termCoordinations ?? []).map((coordination) => ({
+    coordinationId: coordination.id,
+    term: coordination.term,
+    language: coordination.language,
+    targetRendering: coordination.targetRendering,
+    status: coordination.status,
+    items: coordination.items.map((item) => ({
+      segmentId: item.segmentId,
+      unitId: item.unitId,
+      candidateKind: item.candidateKind,
+      beforeText: item.beforeText,
+      afterText: item.afterText,
+      eligible: item.eligible,
+      blockedReasons: item.blockedReasons,
+      originSegmentIds: item.originSegmentIds,
+    })),
+  }));
   return payload;
 }
 
@@ -281,6 +315,16 @@ export function exportBilingual(state: DocState, review?: ReviewWorkspaceState):
         }
       }
       lines.push('');
+    }
+  }
+  if (payload.termCoordinations && payload.termCoordinations.length > 0) {
+    lines.push('--- 跨段术语协调依据（逐项批准；未批准和例外不得替换）---');
+    for (const coordination of payload.termCoordinations) {
+      lines.push(`[${coordination.status}] ${coordination.term}（${coordination.language}）→ ${coordination.targetRendering}`);
+      for (const item of coordination.items) {
+        const status = item.eligible ? '已批准应用' : `未应用：${item.blockedReasons.join('；')}`;
+        lines.push(`  [${item.candidateKind}·${status}] ${item.beforeText} → ${item.afterText}`);
+      }
     }
   }
   return lines.join('\n').trimEnd() + '\n';

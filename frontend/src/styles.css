@@ -296,6 +296,29 @@ button.primary { background: #2856d6; color: #fff; border-color: #2856d6; }
   align-items: center;
 }
 
+.coordination-panel {
+  border-top: 1px dashed #d0d5dd;
+  margin-top: 14px;
+  padding-top: 10px;
+}
+.coordination-controls,
+.coordination-candidates {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 0;
+}
+.coordination-card,
+.coordination-item {
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  padding: 8px;
+  background: #fff;
+}
+.coordination-item.eligible { border-left-color: #12b76a; background: #fcfffd; }
+.coordination-item.blocked { border-left-color: #f79009; background: #fffaf0; }
+.coordination-item.blocked ul { margin: 4px 0 0 18px; color: #9a6010; font-size: 12px; }
+
 .review-board { margin-top: 16px; border-top: 2px solid #444; padding-top: 12px; }
 .branch-create, .merge-controls-row { display: flex; gap: 8px; margin-bottom: 8px; }
 .branch-list { display: flex; flex-wrap: wrap; gap: 8px; }

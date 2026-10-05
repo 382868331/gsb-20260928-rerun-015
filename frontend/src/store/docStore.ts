@@ -19,6 +19,7 @@ import {
   requestRetranslation,
 } from '../core/reviewWorkspace';
 import { createTermDecision, decideTermOnLink, revokeTermDecision, reviseTermDecision } from '../core/terms';
+import { CreateCoordinationInput, confirmTermCoordination, createTermCoordination, withdrawTermCoordination } from '../core/termCoordination';
 import {
   ReviewJudgment,
   ReviewWorkspaceState,
@@ -65,7 +66,7 @@ function loadInitial(): DocState {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as DocState;
-      return { ...parsed, termDecisions: parsed.termDecisions ?? [] };
+      return { ...parsed, termDecisions: parsed.termDecisions ?? [], termCoordinations: parsed.termCoordinations ?? [] };
     }
   } catch {
     // 存储不可用时回退到示例稿。
@@ -108,6 +109,9 @@ interface DocStore {
     type: 'applied' | 'kept' | 'deferred',
     options?: { rationale?: string; revisedText?: string },
   ) => void;
+  createCoordination: (input: CreateCoordinationInput) => string | null;
+  confirmCoordination: (coordinationId: string) => void;
+  withdrawCoordination: (coordinationId: string, reason?: string) => void;
   setTitle: (title: string) => void;
   createReviewBranch: (reviewer: string) => string | null;
   judge: (branchId: string, judgment: ReviewJudgment) => void;
@@ -367,6 +371,33 @@ export const useDocStore = create<DocStore>((set, get) => ({
   decideTerm: (segmentId, unitId, decisionId, type, options) =>
     set((s) => ({
       doc: decideTermOnLink(s.doc, segmentId, unitId, decisionId, type, options),
+      past: [...s.past, deepClone(s.doc)].slice(-HISTORY_LIMIT),
+      future: [],
+      dirty: true,
+    })),
+
+  createCoordination: (input) => {
+    let coordinationId: string | null = null;
+    set((s) => {
+      const snapshot = deepClone(s.doc);
+      const result = createTermCoordination(s.doc, input);
+      coordinationId = result.coordinationId;
+      return { doc: result.state, past: [...s.past, snapshot].slice(-HISTORY_LIMIT), future: [], dirty: true };
+    });
+    return coordinationId;
+  },
+
+  confirmCoordination: (coordinationId) =>
+    set((s) => ({
+      doc: confirmTermCoordination(s.doc, coordinationId),
+      past: [...s.past, deepClone(s.doc)].slice(-HISTORY_LIMIT),
+      future: [],
+      dirty: true,
+    })),
+
+  withdrawCoordination: (coordinationId, reason) =>
+    set((s) => ({
+      doc: withdrawTermCoordination(s.doc, coordinationId, reason),
       past: [...s.past, deepClone(s.doc)].slice(-HISTORY_LIMIT),
       future: [],
       dirty: true,
